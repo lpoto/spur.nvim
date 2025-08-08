@@ -1,14 +1,12 @@
 local M = {}
 
 ---@class SpurConfig
----@field extensions table<string,table>|nil
+---@field extensions table<string,table>|string[]|nil
+---@field enabled boolean|nil Whether the reader extension is enabled
 
 --- Setup the Spur module.
 --- @param config SpurConfig|nil
 function M.setup(config)
-  if M.__setup_done then return end
-  M.__setup_done = true
-
   if config ~= nil and type(config) ~= "table" then
     error("Spur.setup expects a table as config")
   end
@@ -21,7 +19,10 @@ function M.setup(config)
       if type(ext_name) == "string" and ext_name ~= "" then
         local ok, mod = pcall(require, "spur.extension." .. ext_name)
         if ok and type(mod) == "table" and type(mod.init) == "function" then
-          mod.init(opts)
+          local enabled = opts.enabled == nil or opts.enabled == true
+          if enabled then
+            mod.init(opts)
+          end
         else
           vim.notify(
             "Failed to load Spur extension: " .. ext,

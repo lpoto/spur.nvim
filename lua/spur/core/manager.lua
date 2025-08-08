@@ -5,17 +5,36 @@ local format_job_name
 local get_job_actions
 local execute_job_action
 local show_job_output
+local initializers = {}
 local quick_run_counter = 1
 
 --- Add a job to the manager.
 --- The job must be initialized before adding it.
 ---
----@param job SpurJob
+---@param job table
 function M.add_job(job)
-  if type(job) ~= "table" or type(job.get_id) ~= "function" then
+  if type(job) ~= "table" then
     error("Invalid job object provided")
   end
-  jobs[job:get_id()] = job
+  if job.__type == "SpurJob" then
+    if type(job.get_id) ~= "function" then
+      error("Invalid SpurJob object provided")
+    end
+    jobs[job:get_id()] = job
+    return
+  end
+  for _, initializer in ipairs(initializers) do
+    local new_job = initializer(job)
+    if type(new_job) == "table" and new_job.__type == "SpurJob" then
+      if type(new_job.get_id) ~= "function" then
+        error("Invalid SpurJob object provided from initializer")
+      end
+      jobs[new_job:get_id()] = new_job
+      return
+    end
+  end
+  local new_job = require "spur.core.job":new(job)
+  jobs[new_job:get_id()] = new_job
 end
 
 --- Remove a job from the manager.
@@ -23,7 +42,9 @@ end
 ---
 ---@param job SpurJob
 function M.remove_job(job)
-  if type(job) ~= "table" or type(job.get_id) ~= "function" then
+  if type(job) ~= "table"
+      or job.__type ~= "SpurJob"
+      or type(job.get_id) ~= "function" then
     error("Invalid job object provided")
   end
   jobs[job:get_id()] = nil
@@ -111,7 +132,9 @@ function M.select_job(filter, on_select, skip_selection_if_one_result)
     if b_qr then
       return true
     end
-    if a.order == b.order then return false end
+    if a.order == b.order then
+      return a:get_id() < b:get_id()
+    end
     if a.order == nil then return false end
     if b.order == nil then return true end
     return a.order < b.order
@@ -196,6 +219,18 @@ function M.select_job_action(job)
       execute_job_action(job, choice)
     end
   )
+end
+
+--- Add a custom handler for creating new jobs.
+--- If the returned job does not have __type = 'SpurJob',
+--- or the initialier fails,
+--- then the next initializer will be called.
+---
+---@param initializer function
+function M.__add_job_initializer(initializer)
+  if type(initializer) == "function" then
+    table.insert(initializers, initializer)
+  end
 end
 
 ---@param job SpurJob

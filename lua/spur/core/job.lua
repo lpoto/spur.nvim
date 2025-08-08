@@ -10,7 +10,6 @@
 local SpurJob = {}
 SpurJob.__index = SpurJob
 SpurJob.__type = "SpurJob"
-SpurJob.__metatable = SpurJob
 
 local private = setmetatable({}, { __mode = "k" })
 local id_counter = 0
