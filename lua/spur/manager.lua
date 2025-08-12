@@ -2,14 +2,48 @@ local M = {}
 
 local jobs = {}
 local format_job_name
-local get_job_actions
-local execute_job_action
-local show_job_output
-local initializers = {}
 local quick_run_counter = 1
 
+local handlers = {}
+local initialized = false
+
+--- Initialize the job manager -- clearing
+--- the current handlers and adding a default handler.
+function M.init()
+  handlers = {}
+  M.add_handler(require "spur.core.handler":new())
+  initialized = true
+end
+
+--- Check whether init() has already been called
+--- @return boolean
+function M.is_initialized()
+  return initialized
+end
+
+--- Add a job handler to the manager.
+--- This handler takes care of creating a new
+--- job object and displaying its output.
+---
+--- @param handler SpurJobHandler
+function M.add_handler(handler)
+  if handler == nil then
+    return
+  end
+  if type(handler) ~= "table"
+      or type(handler.new) ~= "function"
+      or type(handler.accepts_job) ~= "function"
+      or type(handler.create_job) ~= "function"
+      or type(handler.open_job_output) ~= "function"
+      or type(handler.toggle_job_output) ~= "function"
+      or type(handler.close_job_output) ~= "function"
+  then
+    error("Invalid handler object provided")
+  end
+  table.insert(handlers, handler)
+end
+
 --- Add a job to the manager.
---- The job must be initialized before adding it.
 ---
 ---@param job table
 function M.add_job(job)
@@ -23,17 +57,13 @@ function M.add_job(job)
     jobs[job:get_id()] = job
     return
   end
-  for _, initializer in ipairs(initializers) do
-    local new_job = initializer(job)
-    if type(new_job) == "table" and new_job.__type == "SpurJob" then
-      if type(new_job.get_id) ~= "function" then
-        error("Invalid SpurJob object provided from initializer")
-      end
-      jobs[new_job:get_id()] = new_job
-      return
-    end
+  local handler = M.__find_handler(job)
+  local new_job = handler:create_job(job)
+  if type(new_job) ~= "table"
+      or type(new_job.get_id) ~= "function"
+      or new_job.__type ~= "SpurJob" then
+    error("Invalid SpurJob object returned from handler")
   end
-  local new_job = require "spur.core.job":new(job)
   jobs[new_job:get_id()] = new_job
 end
 
@@ -75,7 +105,8 @@ function M.quick_run(cmd)
   })
   M.add_job(job)
   job:run()
-  require "spur.core.ui".open_job_output(job)
+  local handler = M.__find_handler(job)
+  handler:open_job_output(job)
 end
 
 local is_quick_run
@@ -94,12 +125,15 @@ function M.select_job(filter, on_select, skip_selection_if_one_result)
   end
   local filtered_jobs = {}
   for _, job in ipairs(vim.tbl_values(jobs)) do
-    if type(filter) ~= "function" then
-      table.insert(filtered_jobs, job)
-    else
-      local ok, result = pcall(filter, job)
-      if ok and result == true then
+    local handler = M.__find_handler(job)
+    if #handler:__get_job_actions(job) > 0 then
+      if type(filter) ~= "function" then
         table.insert(filtered_jobs, job)
+      else
+        local ok, result = pcall(filter, job)
+        if ok and result == true then
+          table.insert(filtered_jobs, job)
+        end
       end
     end
   end
@@ -143,7 +177,8 @@ function M.select_job(filter, on_select, skip_selection_if_one_result)
     table.insert(filtered_jobs, { type = "quickrun" })
   end
   if #filtered_jobs == 0 then
-    vim.notify("No jobs found", vim.log.levels.WARN, { title = "Spur.nvim" })
+    local title = require "spur.config".title
+    vim.notify("No jobs found", vim.log.levels.WARN, { title = title })
     return
   end
   local select = function(o)
@@ -173,6 +208,24 @@ function M.select_job(filter, on_select, skip_selection_if_one_result)
   )
 end
 
+--- Find a handler for the job.
+---
+--- @param job SpurJob|table
+function M.__find_handler(job)
+  if type(job) ~= "table" then
+    error("Invalid job data provided")
+  end
+  --- iterate handlers in reverse order,
+  --- so latest ones added have priority
+  for i = #handlers, 1, -1 do
+    local handler = handlers[i]
+    if handler:accepts_job(job) then
+      return handler
+    end
+  end
+  error("No handler found for the provided job")
+end
+
 --- Select one of the supported actions for the provided job.
 ---
 ---@param job SpurJob
@@ -185,26 +238,18 @@ function M.select_job_action(job)
       or type(job.get_bufnr) ~= "function" then
     error("Invalid job object provided")
   end
-  local options = {}
-  if not job:is_running() then
-    table.insert(options, { label = "Run", value = "run" })
-  else
-    table.insert(options, { label = "Stop", value = "stop" })
-  end
-  if job:get_bufnr() ~= nil then
-    table.insert(options, { label = "Output", value = "output" })
-    table.insert(options, { label = "Clean", value = "clean" })
-  end
-  local actions = get_job_actions(job)
+  local handler = M.__find_handler(job)
+  local actions = handler:__get_job_actions(job)
   if #actions == 0 then
+    local title = require "spur.config".title
     vim.notify(
       "No actions available for this job",
       vim.log.levels.WARN,
-      { title = "Spur.nvim" })
+      { title = title })
     return
   end
-  if #actions == 1 then
-    return execute_job_action(job, actions[1])
+  if #actions == 1 and actions[1].value == "run" then
+    return handler:__execute_job_action(job, actions[1])
   end
 
   vim.ui.select(
@@ -216,80 +261,9 @@ function M.select_job_action(job)
       end
     },
     function(choice)
-      execute_job_action(job, choice)
+      handler:__execute_job_action(job, choice)
     end
   )
-end
-
---- Add a custom handler for creating new jobs.
---- If the returned job does not have __type = 'SpurJob',
---- or the initialier fails,
---- then the next initializer will be called.
----
----@param initializer function
-function M.__add_job_initializer(initializer)
-  if type(initializer) == "function" then
-    table.insert(initializers, initializer)
-  end
-end
-
----@param job SpurJob
----@return table[]
-function get_job_actions(job)
-  local options = {}
-  if type(job) ~= "table"
-      or type(job.is_running) ~= "function"
-      or type(job.get_bufnr) ~= "function" then
-    error("Invalid job object provided")
-  end
-  if not job:is_running() then
-    table.insert(options, { label = "Run", value = "run" })
-  else
-    table.insert(options, { label = "Stop", value = "stop" })
-  end
-  if job:get_bufnr() ~= nil then
-    if not job:is_quiet() then
-      table.insert(options, { label = "Output", value = "output" })
-    end
-    table.insert(options, { label = "Clean", value = "clean" })
-  end
-  return options
-end
-
----@param job SpurJob
----@param action table
-function execute_job_action(job, action)
-  if type(job) ~= "table"
-      or type(job.run) ~= "function"
-      or type(job.stop) ~= "function"
-      or type(job.clean) ~= "function" then
-    error("Invalid job object provided")
-  end
-  if type(action) ~= "table" then
-    return
-  end
-  if action.value == "run" then
-    job:run()
-    show_job_output(job)
-  elseif action.value == "stop" then
-    job:stop()
-  elseif action.value == "output" then
-    show_job_output(job)
-  elseif action.value == "clean" then
-    job:clean()
-  end
-end
-
----@param job SpurJob
-function show_job_output(job)
-  if type(job) ~= "table"
-      or type(job.is_quiet) ~= "function" then
-    error("Invalid job object provided")
-  end
-  if not job:is_quiet() then
-    local ui = require("spur.core.ui")
-    ui.open_job_output(job)
-  end
 end
 
 ---@param job SpurJob|table

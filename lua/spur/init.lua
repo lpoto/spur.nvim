@@ -1,33 +1,37 @@
 local M = {}
 
----@class SpurConfig
----@field extensions table<string,table>|string[]|nil
----@field enabled boolean|nil Whether the reader extension is enabled
-
 --- Setup the Spur module.
---- @param config SpurConfig|nil
-function M.setup(config)
-  if config ~= nil and type(config) ~= "table" then
-    error("Spur.setup expects a table as config")
+---
+--- @param opts SpurConfig|nil
+function M.setup(opts)
+  if opts ~= nil and type(opts) ~= "table" then
+    error("Spur.setup expects a table as opts")
   end
-  config = config or {}
+  opts = opts or {}
 
-  if type(config.extensions) == "table" then
-    for k, ext in pairs(config.extensions) do
+  local config = require "spur.config".setup(opts)
+
+  local manager = require "spur.manager"
+  if not manager.is_initialized() then
+    manager.init()
+  end
+
+  if type(opts.extensions) == "table" then
+    for k, ext in pairs(opts.extensions) do
       local ext_name = type(k) == "string" and k or ext
-      local opts = type(ext) == "table" and ext or {}
+      local o = type(ext) == "table" and ext or {}
       if type(ext_name) == "string" and ext_name ~= "" then
         local ok, mod = pcall(require, "spur.extension." .. ext_name)
         if ok and type(mod) == "table" and type(mod.init) == "function" then
-          local enabled = opts.enabled == nil or opts.enabled == true
+          local enabled = o.enabled == nil or o.enabled == true
           if enabled then
-            mod.init(opts)
+            mod.init(o)
           end
         else
           vim.notify(
             "Failed to load Spur extension: " .. ext,
             vim.log.levels.ERROR, {
-              title = "Spur.nvim",
+              title = config.title,
             })
         end
       end
@@ -35,11 +39,18 @@ function M.setup(config)
   end
 end
 
+--- Get the current Spur configuration.
+---
+--- @return SpurConfig
+function M.config()
+  return require "spur.config"
+end
+
 --- Select a job from the list of available jobs.
 --- On selection, the user will be prompted to
 --- select an action for the job.
 function M.select_job()
-  require "spur.core.manager".select_job()
+  require "spur.manager".select_job()
 end
 
 --- Select a job from the list of available jobs,
@@ -48,18 +59,41 @@ end
 --- If there is only a single available output,
 --- it will be opened directly.
 function M.select_output()
-  require "spur.core.manager".select_job(
+  local manager = require "spur.manager"
+  manager.select_job(
     function(job)
       return job:get_bufnr() ~= nil
           and vim.api.nvim_buf_is_valid(job:get_bufnr())
     end,
     function(job)
       if job ~= nil then
-        require "spur.core.ui".open_job_output(job)
+        manager.__find_handler(job):open_job_output(job)
       end
     end,
     true
   )
+end
+
+--- Select a job from the list of available jobs,
+--- that already has an output, and open its output.
+---
+--- If there is only a single available output,
+--- it will be opened directly.
+---
+--- If output already opened, it will be closed instead
+function M.toggle_output()
+  local windows = vim.api.nvim_list_wins()
+  for _, win in ipairs(windows) do
+    local bufnr = vim.api.nvim_win_get_buf(win)
+    if vim.bo[bufnr].filetype == M.config().filetype
+        and vim.bo[bufnr].buftype == "prompt"
+    then
+      vim.api.nvim_win_close(win, true)
+      return false
+    end
+  end
+  M.select_output()
+  return true
 end
 
 return M

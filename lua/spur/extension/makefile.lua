@@ -30,6 +30,7 @@ function M.init(config)
     end
 
     for _, makefile in ipairs(config.files) do
+
       if type(makefile) == "string" and not files_read[makefile] then
         files_read[makefile] = true
         read_makefile(makefile, async, function(content)
@@ -39,7 +40,7 @@ function M.init(config)
           local ok, jobs = pcall(parse_targets, content)
           if ok and type(jobs) == "table" then
             for _, job in ipairs(jobs) do
-              require("spur.core.manager").add_job(require "spur.core.job":new(job))
+              require("spur.manager").add_job(require "spur.core.job":new(job))
             end
           else
             error("[Spur.makefile] Failed to decode jobs from: " .. makefile)

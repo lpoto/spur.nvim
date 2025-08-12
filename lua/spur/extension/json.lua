@@ -39,7 +39,7 @@ function M.init(config)
           if ok and type(jobs) == "table" then
             for _, job in ipairs(jobs) do
               if job ~= nil then
-                require("spur.core.manager").add_job(job)
+                require("spur.manager").add_job(job)
               end
             end
           else
