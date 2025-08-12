@@ -38,7 +38,7 @@ function M.init(config)
           local ok, jobs = pcall(vim.json.decode, file_content)
           if ok and type(jobs) == "table" then
             for _, job in ipairs(jobs) do
-              if job ~= nil then
+              if type(job) == "table" then
                 require("spur.manager").add_job(job)
               end
             end

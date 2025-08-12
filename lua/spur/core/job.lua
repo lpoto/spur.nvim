@@ -1,19 +1,24 @@
 ---@class SpurJob
----@field name string
----@field cmd string
----@field working_dir string|nil
+---@field name string|nil
 ---@field order number|nil
 ---@field quiet boolean
 ---@field on_exit function|nil
 ---@field on_start function|nil
 ---@field on_clean function|nil
+---@field job SpurJobData|nil
 local SpurJob = {}
 SpurJob.__index = SpurJob
 SpurJob.__type = "SpurJob"
 
+---@class SpurJobData
+---@field cmd string
+---@field name string
+---@field working_dir string|nil
+
 local private = setmetatable({}, { __mode = "k" })
 local id_counter = 0
 local write_line
+local write_remaining_text
 local create_job_buffer
 local start_job
 local set_output_buf_options
@@ -26,11 +31,21 @@ function SpurJob:new(opts)
   if type(opts) ~= "table" then
     error("SpurJob:new expects a table of options")
   end
-  if opts.cmd == nil or type(opts.cmd) ~= "string" then
-    error("SpurJob:new expects a 'cmd' string in options")
+  local jobdata = opts.job
+  if type(jobdata) ~= "table" then
+    error("SpurJob:new expects a 'job' table in options")
   end
-  if opts.name ~= nil and type(opts.name) ~= "string" then
-    error("SpurJob:new expects 'name' to be a string if provided")
+  if jobdata.cmd == nil or type(jobdata.cmd) ~= "string" then
+    error("SpurJob:new expects a 'job.cmd' string in options")
+  end
+  if type(opts.name) ~= "string" or opts.name == "" then
+    if jobdata.name == nil or type(jobdata.name) ~= "string" or jobdata.name == "" then
+      error("SpurJob:new expects 'job.name' to be a non-empty string")
+    end
+    opts.name = jobdata.name
+  end
+  if jobdata.working_dir ~= nil and type(jobdata.working_dir) ~= "string" then
+    error("SpurJob:new expects 'job.working_dir' to be a string if provided")
   end
   if opts.on_exit ~= nil and type(opts.on_exit) ~= "function" then
     error("SpurJob:new expects 'on_exit' to be a function if provided")
@@ -47,26 +62,15 @@ function SpurJob:new(opts)
   if opts.order ~= nil and type(opts.order) ~= "number" then
     error("SpurJob:new expects 'order' to be a number if provided")
   end
-  if opts.working_dir ~= nil and type(opts.working_dir) ~= "string" then
-    error("SpurJob:new expects 'working_dir' to be a string if provided")
-  end
   id_counter = id_counter + 1
   local private_opts = {
     id = id_counter,
     bufnr = nil,
     job_id = nil
   }
-  local name = nil
-  if type(opts.name) == "string" and opts.name ~= "" then
-    name = opts.name
-  end
-  if name == nil then
-    name = "SpurJob " .. private_opts.id
-  end
   local instance = setmetatable({
-    name = name,
-    cmd = opts.cmd,
-    working_dir = opts.working_dir or nil,
+    job = jobdata,
+    name = opts.name or jobdata.name,
     quiet = opts.quiet or false,
     order = opts.order or nil,
     on_exit = opts.on_exit,
@@ -114,14 +118,7 @@ end
 ---
 --- @return string
 function SpurJob:get_name()
-  if type(self.name) == "string" and self.name ~= "" then
-    return self.name
-  end
-  if self.cmd ~= nil and type(self.cmd) == "string"
-  then
-    return self.cmd
-  end
-  error("SpurJob command is not available")
+  return self.name
 end
 
 --- Get the status associated with the job.
@@ -238,10 +235,10 @@ function SpurJob:__start_job(bufnr)
   if private_opts.job_id ~= nil then
     error("SpurJob is already running")
   end
-  if type(self.cmd) ~= "string" or self.cmd == "" then
+  if type(self.job) ~= "table" or type(self.job.cmd) ~= "string" or self.job.cmd == "" then
     error("SpurJob command is not set")
   end
-  if self.working_dir ~= nil and type(self.working_dir) ~= "string" then
+  if self.job.working_dir ~= nil and type(self.job.working_dir) ~= "string" then
     error("SpurJob working_dir must be a string or nil")
   end
 
@@ -255,7 +252,7 @@ function SpurJob:__start_job(bufnr)
 end
 
 function SpurJob:__tostring()
-  return string.format("SpurJob(%s)", self.name)
+  return string.format("SpurJob(%s)", self:get_name())
 end
 
 function SpurJob:__on_exit(opts)
@@ -271,15 +268,16 @@ function SpurJob:__on_exit(opts)
     return
   end
   local config = require "spur.config"
+  write_remaining_text(bufnr)
 
   if type(opts.exit_code) == "number" then
     local hl = opts.exit_code == 0 and config.hl.info or config.hl.warn
-    self:__handle_output("\n \n" .. config.prefix .. "Exited with code " .. opts.exit_code .. "\n",
+    self:__handle_output("\n" .. config.prefix .. "Exited with code " .. opts.exit_code .. "\n",
       hl)
   elseif opts.killed == true then
-    self:__handle_output("\n \n" .. config.prefix .. "Killed\n", config.hl.warn)
+    self:__handle_output("\n" .. config.prefix .. "Killed\n", config.hl.warn)
   else
-    self:__handle_output("\n \n" .. config.prefix .. "Exited\n", config.hl.info)
+    self:__handle_output("\n" .. config.prefix .. "Exited\n", config.hl.info)
   end
 
   vim.bo[bufnr].buflisted = false
@@ -314,7 +312,7 @@ function SpurJob:__send_signal(name)
     return
   end
   local config = require "spur.config"
-  self:__handle_output("\n \n" .. config.prefix .. "Signal - " .. name .. "\n", config.hl.debug)
+  self:__handle_output("\n" .. config.prefix .. "Signal - " .. name .. "\n\n", config.hl.debug)
 end
 
 function SpurJob:__handle_output(output, hl)
@@ -329,34 +327,54 @@ function SpurJob:__handle_output(output, hl)
   if type(private_opts) ~= "table" then
     return
   end
-
-  local lines = {}
-  for line in output:gmatch("[^\n]+") do
-    table.insert(lines, line .. "\n")
-  end
-  local contains_newline = output:sub(-1) == "\n"
-  for i, line in ipairs(lines) do
-    local last = i == #lines
-    line = line
-    if contains_newline or not last then
-      line = line .. "\n"
+  for line, newline in output:gmatch("([^\n]*)(\n?)") do
+    if newline == "" and line == "" then
+      break
     end
-    write_line(private_opts.bufnr, line, hl)
+    local text = line
+    if newline == "\n" then
+      text = text .. "\n"
+    end
+    write_line(private_opts.bufnr, text, hl)
   end
 end
 
+---@param job SpurJob
 function start_job(job)
   local private_opts = private[job]
   if type(private_opts) ~= "table" then
     error("SpurJob instance is not properly initialized")
   end
+  if type(job.job) ~= "table" then
+    error("SpurJob instance is not properly initialized")
+  end
+
+  local last_line = ""
+  local function parse_output(line)
+    if type(line) ~= "string" then
+      return
+    end
+    if line == "" then
+      if last_line == "" then
+        return
+      end
+      last_line = last_line .. "\n"
+    else
+      last_line = last_line .. line
+    end
+    if last_line:sub(-1) == "\n" then
+      job:__handle_output(last_line)
+      last_line = ""
+      return
+    end
+  end
 
   local job_id
   job_id = vim.fn.jobstart(
-    job.cmd,
+    job.job.cmd,
     {
       term = false,
-      cwd = job.working_dir,
+      cwd = job.job.working_dir,
       detach = false,
       on_exit = function(_, code, msg)
         private_opts.job_id = nil
@@ -367,13 +385,22 @@ function start_job(job)
         })
       end,
       on_stdout = function(_, o)
-        for _, line in ipairs(o) do
-          job:__handle_output(line)
+        if type(o) == "table" then
+          for _, line in ipairs(o) do
+            parse_output(line)
+          end
+        end
+      end,
+      on_stderr = function(_, o)
+        if type(o) == "table" then
+          for _, line in ipairs(o) do
+            parse_output(line)
+          end
         end
       end,
     })
   local config = require "spur.config"
-  job:__handle_output(config.prefix .. job.cmd .. "\n\n", config.hl.info)
+  job:__handle_output(config.prefix .. job.job.cmd .. "\n", config.hl.info)
   if type(job.on_start) == "function" then
     job.on_start(job)
   end
@@ -400,7 +427,22 @@ function create_job_buffer(job, on_input)
 end
 
 local full_line = {}
+local last_hl = {}
 local had_focus = true
+
+function write_remaining_text(bufnr)
+  if type(bufnr) ~= "number" then
+    return
+  end
+  local text = type(full_line) == "table" and full_line[bufnr]
+  if type(text) == "string" and text ~= "" then
+    vim.notify(text)
+    local hl = type(last_hl) == "table" and last_hl[bufnr]
+    full_line[bufnr] = nil
+    write_line(bufnr, text .. "\n", hl)
+  end
+end
+
 function write_line(bufnr, text, hl)
   vim.schedule(function()
     if type(bufnr) ~= "number" or not vim.api.nvim_buf_is_valid(bufnr) then
@@ -409,6 +451,7 @@ function write_line(bufnr, text, hl)
     if type(text) ~= "string" then
       return
     end
+    last_hl[bufnr] = hl
     local modifiable = vim.bo[bufnr].modifiable
     local readonly = vim.bo[bufnr].readonly
     local mode = vim.api.nvim_get_mode().mode
@@ -450,7 +493,7 @@ function write_line(bufnr, text, hl)
         a = 0
         b = 0
       end
-
+      last_hl[bufnr] = nil
       vim.bo[bufnr].modifiable = true
       vim.bo[bufnr].readonly = false
       vim.api.nvim_buf_set_lines(bufnr, a, b, false, { full_line[bufnr] })

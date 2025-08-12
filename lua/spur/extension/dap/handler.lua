@@ -18,9 +18,16 @@ end
 --- @param opts table Input fields for SpurJob
 --- @return boolean
 function SpurJobDapHandler:accepts_job(opts)
-  return type(opts) == "table"
-      and opts.cmd == "dap"
-      and type(opts.dap) == "table"
+  if type(opts) ~= "table" then
+    return false
+  end
+  if type(opts.dap) ~= "table" then
+    return false
+  end
+  if type(opts.job) == "table" then
+    return opts.job.cmd == "dap"
+  end
+  return true
 end
 
 ---@param o table Input fields for SpurJob

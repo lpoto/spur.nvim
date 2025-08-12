@@ -1,8 +1,8 @@
 local SpurJob = require("spur.core.job")
 
 ---@class SpurDapJobConfig
----@field adapter string|table
----@field configuration table
+---@field adapter table|function
+---@field configuration table|string
 
 ---@class SpurDapJob : SpurJob
 ---@field dap SpurDapJobConfig
@@ -19,10 +19,6 @@ local private = setmetatable({}, { __mode = "k" })
 ---@param opts table
 ---@return SpurDapJob
 function SpurDapJob:new(opts)
-  local spur_job = SpurJob:new(opts)
-
-  local instance = setmetatable(spur_job, SpurDapJob)
-
   if opts.dap == nil or type(opts.dap) ~= "table" then
     error("SpurDapJob:new expects 'dap' to be a table in options")
   end
@@ -30,10 +26,72 @@ function SpurDapJob:new(opts)
   if opts.dap.configuration == nil or (type(opts.dap.configuration) ~= "table" and type(opts.dap.configuration) ~= "string") then
     error("SpurDapJob:new expects 'dap.configuration' to be a table in options")
   end
-
-  if opts.dap.adapter == nil or (type(opts.dap.adapter) ~= "table" and type(opts.dap.adapter) ~= "string") then
-    error("SpurDapJob:new expects 'dap.adapter' to be a table or a string in options")
+  if type(opts.dap.configuration) == "table" then
+    if type(opts.dap.configuration.type) ~= "string" or opts.dap.configuration.type == "" then
+      error("SpurDapJob:new expects 'dap.configuration.type' to be a non-empty string in options")
+    end
   end
+  if opts.dap.adapter ~= nil
+      and type(opts.dap.adapter) ~= "table"
+      and type(opts.dap.adapter) ~= "function" then
+    error("SpurDapJob:new expects 'dap.adapter' to be a table or a function in options if provided")
+  end
+  local name = opts.name
+
+  -- NOTE: We set adapters to dap here,
+  -- so that they may be reused in jobs.
+  local ok, dap = pcall(require, "dap")
+  if ok then
+    local config = nil
+    if type(opts.dap.configuration) == "string" then
+      config = type(dap.configurations) == "table" and
+          dap.configurations[opts.dap.configuration]
+      if type(config) ~= "table" then
+        error("[Spur.dap] DAP configuration not found for: " .. opts.dap.configuration)
+      end
+    elseif type(opts.dap.configuration) == "table" then
+      config = opts.dap.configuration
+    end
+    if type(config) ~= "table" then
+      error(
+        "SpurDapJob:new expects 'dap.configuration' to be a table or a string that resolves to a table in options")
+    end
+    if type(config.type) ~= "string" then
+      error("SpurDapJob:new expects 'dap.configuration.type' to be a string in options")
+    end
+    if type(name) ~= "string" or name == "" then
+      if type(config.name) ~= "string" or config.name == "" then
+        error("SpurDapJob:new expects 'dap.configuration.name' to be a non-empty string in options")
+      end
+      name = config.name
+    end
+    if opts.dap.adapter == nil then
+      local adapter = type(dap.adapters) == "table"
+          and type(config.type) == "string"
+          and dap.adapters[config.type] or nil
+      if type(adapter) ~= "table" and type(adapter) ~= "function" then
+        error("[Spur.dap] DAP adapter not found for: " .. config.type)
+      end
+    elseif type(config.type) == "string" then
+      local adapter = type(dap.adapters) == "table" and dap.adapters[config.type] or nil
+      if (type(opts.dap.adapter) == "table" or type(opts.dap.adapter) == "function") and adapter == nil then
+        if type(dap.adapters) ~= "table" then
+          dap.adapters = {}
+        end
+        dap.adapters[config.type] = opts.dap.adapter
+      end
+    end
+  end
+
+  opts.job = {
+    cmd = "dap",
+    name = name,
+  }
+  local spur_job = SpurJob:new(opts)
+
+  local instance = setmetatable(spur_job, SpurDapJob)
+
+
   private[instance] = {
     id = spur_job:get_id(),
     session = nil
@@ -132,7 +190,7 @@ end
 
 --- Override run to start DAP session
 function SpurDapJob:__tostring()
-  return string.format("SpurDapJob(%s)", self.name)
+  return string.format("SpurDapJob(%s)", self:get_name())
 end
 
 function SpurDapJob:is_stopped()
@@ -352,7 +410,7 @@ function SpurDapJob:__start_job(bufnr)
 
         msg = msg .. " - " .. o.reason
       end
-      self:__handle_output("\n \n" .. config.prefix .. msg .. "\n \n", config.hl.debug)
+      self:__handle_output("\n" .. config.prefix .. msg .. "\n\n", config.hl.debug)
     end)
   end
   return bufnr

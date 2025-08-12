@@ -97,8 +97,10 @@ function M.quick_run(cmd)
   quick_run_counter = quick_run_counter + 1
   local job
   job = require "spur.core.job":new({
-    cmd = cmd,
-    name = "Quick run " .. counter,
+    job = {
+      cmd = cmd,
+      name = "Quick run " .. counter,
+    },
     on_clean = function()
       M.remove_job(job)
     end
@@ -155,8 +157,8 @@ function M.select_job(filter, on_select, skip_selection_if_one_result)
     if b_output and not a_output then
       return false
     end
-    local a_qr = is_quick_run(a.name)
-    local b_qr = is_quick_run(b.name)
+    local a_qr = is_quick_run(a:get_name())
+    local b_qr = is_quick_run(b:get_name())
     if a_qr and b_qr then
       return a.name < b.name
     end

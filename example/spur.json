@@ -1,0 +1,55 @@
+[
+  {
+    "job": {
+      "name": "Go run",
+      "cmd": "go run .",
+      "working_dir": "./"
+    },
+    "order": 1,
+    "quiet": false
+  },
+  {
+    "dap": {
+      "adapter": {
+        "type": "server",
+        "port": 38697,
+        "executable": {
+          "command": "dlv",
+          "args": [
+            "dap",
+            "-l",
+            "127.0.0.1:38697",
+            "--log",
+            "--log-output=dap"
+          ],
+          "detached": false
+        }
+      },
+      "configuration": {
+        "name": "Debug - Go run",
+        "type": "delve",
+        "request": "launch",
+        "console": "integratedTerminal",
+        "outputMode": "remote",
+        "program": "./"
+      }
+    },
+    "order": 2,
+    "quiet": false
+  },
+  {
+    "dap": {
+      "configuration": {
+        "name": "Debug - Go test",
+        "type": "delve",
+        "request": "launch",
+        "mode": "test",
+        "console": "integratedTerminal",
+        "outputMode": "remote",
+        "program": "./"
+      }
+    },
+    "order": 3,
+    "quiet": false
+  }
+]
