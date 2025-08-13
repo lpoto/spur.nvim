@@ -443,6 +443,7 @@ function write_remaining_text(bufnr)
   end
 end
 
+local highlight_line
 function write_line(bufnr, text, hl)
   vim.schedule(function()
     if type(bufnr) ~= "number" or not vim.api.nvim_buf_is_valid(bufnr) then
@@ -497,29 +498,16 @@ function write_line(bufnr, text, hl)
       vim.bo[bufnr].modifiable = true
       vim.bo[bufnr].readonly = false
       vim.api.nvim_buf_set_lines(bufnr, a, b, false, { full_line[bufnr] })
-      if type(hl) == "string" then
-        local config = require "spur.config"
-
-        local last_line = a == 0 and b == 0 and 1 or vim.api.nvim_buf_line_count(bufnr)
-        local last_line_text = vim.api.nvim_buf_get_lines(bufnr, last_line - 1, last_line, false)
-            [1] or
-            ""
-        local last_col = #last_line_text
-        local start_col = 0
-        local prefix = config.prefix
-        local prefix_len = #prefix
-        if
-            prefix_len > 0
-            and #last_line_text >= prefix_len
-            and last_line_text:sub(1, prefix_len) == prefix then
-          start_col = prefix_len
-          ---@diagnostic disable-next-line
-          vim.api.nvim_buf_add_highlight(bufnr, -1, config.hl.prefix, last_line - 1, 0, start_col)
-        end
-        ---@diagnostic disable-next-line
-        vim.api.nvim_buf_add_highlight(bufnr, -1, hl, last_line - 1, start_col, last_col)
-      end
-
+      local last_line = a == 0 and b == 0 and 1 or vim.api.nvim_buf_line_count(bufnr)
+      local last_line_text = vim.api.nvim_buf_get_lines(bufnr, last_line - 1, last_line, false)
+          [1] or
+          ""
+      highlight_line({
+        bufnr = bufnr,
+        text = last_line_text,
+        row = last_line - 1,
+        hl = hl,
+      })
       vim.bo[bufnr].modified = false
       full_line[bufnr] = nil
       if move_to_end and has_focus then
@@ -536,6 +524,45 @@ function write_line(bufnr, text, hl)
         end)
       end)
     end
+  end)
+end
+
+function highlight_line(opts)
+  pcall(function()
+    local text = opts.text
+    if type(text) ~= "string" or text == "" then
+      return
+    end
+    local hl = opts.hl
+    local bufnr = opts.bufnr
+    local row = opts.row
+    local start_col = 0
+    local last_col = #text
+    local config = require "spur.config"
+    local prefix = config.prefix
+    local prefix_len = #prefix
+    if
+        prefix_len > 0
+        and #text >= prefix_len
+        and text:sub(1, prefix_len) == prefix then
+      start_col = prefix_len
+      ---@diagnostic disable-next-line
+      vim.api.nvim_buf_add_highlight(bufnr, -1, config.hl.prefix, row, 0, start_col)
+    elseif type(hl) ~= "string" or hl == "" then
+      local build_successful = text:match("^BUILD SUCCESSFUL ")
+      if build_successful then
+        local partial_hl = config.hl.success
+        start_col = #build_successful
+        last_col = #text
+        ---@diagnostic disable-next-line
+        vim.api.nvim_buf_add_highlight(bufnr, -1, partial_hl, row, 0, start_col)
+      end
+    end
+    if type(hl) ~= "string" or hl == "" then
+      return
+    end
+    ---@diagnostic disable-next-line
+    vim.api.nvim_buf_add_highlight(bufnr, -1, hl, row, start_col, last_col)
   end)
 end
 

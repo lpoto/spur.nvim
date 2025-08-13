@@ -30,14 +30,13 @@ function M.init(config)
     end
 
     for _, makefile in ipairs(config.files) do
-
       if type(makefile) == "string" and not files_read[makefile] then
         files_read[makefile] = true
         read_makefile(makefile, async, function(content)
           if type(content) ~= "string" or content == "" then
             return
           end
-          local ok, jobs = pcall(parse_targets, content)
+          local ok, jobs = pcall(parse_targets, makefile, content)
           if ok and type(jobs) == "table" then
             for _, job in ipairs(jobs) do
               require("spur.manager").add_job(require "spur.core.job":new(job))
@@ -75,7 +74,9 @@ function read_makefile(path, async, callback)
   return callback(file_util.read_file_secure(path))
 end
 
-function parse_targets(content)
+function parse_targets(file, content)
+  local working_dir = vim.fn.fnamemodify(file, ":p:h")
+
   local jobs = {}
   for line in content:gmatch("[^\r\n]+") do
     local target = line:match("^([%w-_%.]+):")
@@ -85,8 +86,11 @@ function parse_targets(content)
         and target ~= "default" then
       table.insert(jobs, {
         order = 90,
-        name = "make " .. target,
-        cmd = "make " .. target,
+        job = {
+          name = "make " .. target,
+          cmd = "make " .. target,
+          workdir = working_dir,
+        }
       })
     end
   end

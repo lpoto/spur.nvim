@@ -55,6 +55,11 @@ local function setup_config(opts)
   else
     hl.prefix = c.hl.prefix
   end
+  if type(c.hl.success) ~= "string" then
+    hl.success = "Label"
+  else
+    hl.success = c.hl.success
+  end
   c.hl = hl
 
   for h, link in pairs(c.hl) do
