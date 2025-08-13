@@ -331,7 +331,22 @@ function SpurDapJob:__start_job(bufnr)
   end
   private_opts.session = new_session
   local config = require "spur.config"
-  self:__handle_output(config.prefix .. "Debug\n", config.hl.info)
+  local writer = self:__get_writer()
+  if writer ~= nil then
+    local msg = config.prefix
+    local name = self:get_name()
+    if type(name) == "string" and name ~= "" then
+      pcall(function()
+        if not name:lower():find("debug") and not name:lower():find("dbg") then
+          name = "Debug - " .. name
+        end
+      end)
+      msg = msg .. name
+    else
+      msg = msg .. "Debug - " .. configuration.type
+    end
+    writer:write({ message = msg .. "\n", hl = config.hl.info })
+  end
 
   if type(dap.listeners) ~= "table" then
     dap.listeners = {}
@@ -360,7 +375,9 @@ function SpurDapJob:__start_job(bufnr)
         or type(output.category) ~= "string" or output.category == "console" then
       return
     end
-    self:__handle_output(output.output)
+    if writer ~= nil then
+      writer:write({ message = output.output })
+    end
   end
   dap.listeners.before.event_stopped[key] = function(session, o)
     if type(session) ~= "table"
@@ -410,7 +427,9 @@ function SpurDapJob:__start_job(bufnr)
 
         msg = msg .. " - " .. o.reason
       end
-      self:__handle_output("\n" .. config.prefix .. msg .. "\n\n", config.hl.debug)
+      if writer ~= nil then
+        writer:write({ message = "\n" .. config.prefix .. msg .. "\n\n", hl = config.hl.debug })
+      end
     end)
   end
   return bufnr

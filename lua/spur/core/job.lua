@@ -17,8 +17,6 @@ SpurJob.__type = "SpurJob"
 
 local private = setmetatable({}, { __mode = "k" })
 local id_counter = 0
-local write_line
-local write_remaining_text
 local create_job_buffer
 local start_job
 local set_output_buf_options
@@ -66,12 +64,13 @@ function SpurJob:new(opts)
   local private_opts = {
     id = id_counter,
     bufnr = nil,
-    job_id = nil
+    job_id = nil,
+    writer = nil
   }
   local instance = setmetatable({
     job = jobdata,
     name = opts.name or jobdata.name,
-    quiet = opts.quiet or false,
+    quiet = opts.quiet == true,
     order = opts.order or nil,
     on_exit = opts.on_exit,
     on_start = opts.on_start,
@@ -126,6 +125,9 @@ end
 --- @return string|nil
 function SpurJob:get_status()
   if self:is_running() then
+    if self:is_quiet() then
+      return "Running - quiet"
+    end
     return "Running"
   end
   if self:can_show_output() then
@@ -176,10 +178,40 @@ function SpurJob:run()
   local existing_buf = private_opts.bufnr
   if self:is_quiet() then
     private_opts.bufnr = nil
+    private_opts.writer = nil
   else
     private_opts.bufnr = create_job_buffer(self)
+    if type(private_opts.bufnr) == "number" then
+      private_opts.writer = require("spur.core.writer"):new(private_opts.bufnr)
+    end
   end
-  self:__start_job(private_opts.bufnr)
+  local ok, err = pcall(self.__start_job, self, private_opts.bufnr)
+  if not ok then
+    pcall(function()
+      if private_opts.bufnr ~= nil and vim.api.nvim_buf_is_valid(private_opts.bufnr) then
+        vim.api.nvim_buf_delete(private_opts.bufnr, { force = true })
+      end
+      private_opts.bufnr = nil
+      private_opts.writer = nil
+    end)
+    error(err)
+  end
+
+  local winids = vim.api.nvim_list_wins()
+  pcall(function()
+    local config = require "spur.config"
+    for _, winid in ipairs(winids) do
+      local buf = vim.api.nvim_win_get_buf(winid)
+      if buf == existing_buf
+          or (vim.bo[buf].filetype == config.filetype
+            and vim.bo[buf].buftype == "prompt")
+      then
+        pcall(function()
+          vim.api.nvim_win_close(winid, true)
+        end)
+      end
+    end
+  end)
   pcall(function()
     if existing_buf ~= nil and vim.api.nvim_buf_is_valid(existing_buf) then
       -- If the job was already running, we need to clean up the old buffer.
@@ -221,6 +253,7 @@ function SpurJob:clean()
     end
   end
   private_opts.bufnr = nil
+  private_opts.writer = nil
 end
 
 ---@param bufnr number|nil
@@ -242,17 +275,25 @@ function SpurJob:__start_job(bufnr)
     error("SpurJob working_dir must be a string or nil")
   end
 
-  if self.quiet == true then
+  if self.quiet == true or bufnr == nil then
     start_job(self)
     return nil
   end
-  bufnr = create_job_buffer(self)
   vim.api.nvim_buf_call(bufnr, function() start_job(self) end)
   return bufnr
 end
 
 function SpurJob:__tostring()
   return string.format("SpurJob(%s)", self:get_name())
+end
+
+---@return SpurWriter|nil
+function SpurJob:__get_writer()
+  local private_opts = private[self]
+  if type(private_opts) ~= "table" then
+    return nil
+  end
+  return type(private_opts.writer) == "table" and private_opts.writer or nil
 end
 
 function SpurJob:__on_exit(opts)
@@ -268,16 +309,22 @@ function SpurJob:__on_exit(opts)
     return
   end
   local config = require "spur.config"
-  write_remaining_text(bufnr)
+  local writer = self:__get_writer()
 
-  if type(opts.exit_code) == "number" then
-    local hl = opts.exit_code == 0 and config.hl.info or config.hl.warn
-    self:__handle_output("\n" .. config.prefix .. "Exited with code " .. opts.exit_code .. "\n",
-      hl)
-  elseif opts.killed == true then
-    self:__handle_output("\n" .. config.prefix .. "Killed\n", config.hl.warn)
-  else
-    self:__handle_output("\n" .. config.prefix .. "Exited\n", config.hl.info)
+  if writer ~= nil then
+    writer:write_remainder()
+
+    if type(opts.exit_code) == "number" then
+      local hl = opts.exit_code == 0 and config.hl.info or config.hl.warn
+      writer:write({
+        message = "\n" .. config.prefix .. "Exited with code " .. opts.exit_code .. "\n",
+        hl = hl
+      })
+    elseif opts.killed == true then
+      writer:write({ message = "\n" .. config.prefix .. "Killed\n", hl = config.hl.warn })
+    else
+      writer:write({ message = "\n" .. config.prefix .. "Exited\n", hl = config.hl.info })
+    end
   end
 
   vim.bo[bufnr].buflisted = false
@@ -312,30 +359,12 @@ function SpurJob:__send_signal(name)
     return
   end
   local config = require "spur.config"
-  self:__handle_output("\n" .. config.prefix .. "Signal - " .. name .. "\n\n", config.hl.debug)
-end
-
-function SpurJob:__handle_output(output, hl)
-  if self:is_quiet() then
-    return
-  end
-  if type(output) ~= "string"
-      or output == "" then
-    return
-  end
-  local private_opts = private[self]
-  if type(private_opts) ~= "table" then
-    return
-  end
-  for line, newline in output:gmatch("([^\n]*)(\n?)") do
-    if newline == "" and line == "" then
-      break
-    end
-    local text = line
-    if newline == "\n" then
-      text = text .. "\n"
-    end
-    write_line(private_opts.bufnr, text, hl)
+  local writer = self:__get_writer()
+  if writer ~= nil then
+    writer:write({
+      message = "\n" .. config.prefix .. "Signal - " .. name .. "\n",
+      hl = config.hl.debug,
+    })
   end
 end
 
@@ -349,23 +378,10 @@ function start_job(job)
     error("SpurJob instance is not properly initialized")
   end
 
-  local last_line = ""
-  local function parse_output(line)
-    if type(line) ~= "string" then
-      return
-    end
-    if line == "" then
-      if last_line == "" then
-        return
-      end
-      last_line = last_line .. "\n"
-    else
-      last_line = last_line .. line
-    end
-    if last_line:sub(-1) == "\n" then
-      job:__handle_output(last_line)
-      last_line = ""
-      return
+  local parse_output = function(o)
+    local writer = job:__get_writer()
+    if writer ~= nil then
+      writer:write({ message = o })
     end
   end
 
@@ -384,23 +400,16 @@ function start_job(job)
           job = job,
         })
       end,
-      on_stdout = function(_, o)
-        if type(o) == "table" then
-          for _, line in ipairs(o) do
-            parse_output(line)
-          end
-        end
-      end,
-      on_stderr = function(_, o)
-        if type(o) == "table" then
-          for _, line in ipairs(o) do
-            parse_output(line)
-          end
-        end
-      end,
+      stderr_buffered = false,
+      stdout_buffered = false,
+      on_stdout = function(_, o) parse_output(o) end,
+      on_stderr = function(_, o) parse_output(o) end,
     })
   local config = require "spur.config"
-  job:__handle_output(config.prefix .. job.job.cmd .. "\n", config.hl.info)
+  local writer = job:__get_writer()
+  if writer ~= nil then
+    writer:write({ message = config.prefix .. job.job.cmd .. "\n", hl = config.hl.info })
+  end
   if type(job.on_start) == "function" then
     job.on_start(job)
   end
@@ -424,146 +433,6 @@ function create_job_buffer(job, on_input)
     job:kill()
   end)
   return bufnr
-end
-
-local full_line = {}
-local last_hl = {}
-local had_focus = true
-
-function write_remaining_text(bufnr)
-  if type(bufnr) ~= "number" then
-    return
-  end
-  local text = type(full_line) == "table" and full_line[bufnr]
-  if type(text) == "string" and text ~= "" then
-    vim.notify(text)
-    local hl = type(last_hl) == "table" and last_hl[bufnr]
-    full_line[bufnr] = nil
-    write_line(bufnr, text .. "\n", hl)
-  end
-end
-
-local highlight_line
-function write_line(bufnr, text, hl)
-  vim.schedule(function()
-    if type(bufnr) ~= "number" or not vim.api.nvim_buf_is_valid(bufnr) then
-      return
-    end
-    if type(text) ~= "string" then
-      return
-    end
-    last_hl[bufnr] = hl
-    local modifiable = vim.bo[bufnr].modifiable
-    local readonly = vim.bo[bufnr].readonly
-    local mode = vim.api.nvim_get_mode().mode
-    local in_insert_mode = mode:sub(1, 1) == "i"
-        or mode:sub(1, 1) == "r"
-        or mode:sub(1, 1) == "R"
-        or mode:sub(1, 1) == "I"
-    if in_insert_mode then
-      pcall(function()
-        vim.api.nvim_buf_call(bufnr, function()
-          vim.cmd("stopinsert")
-        end)
-      end)
-    end
-
-    pcall(function()
-      local contains_newline = text:sub(-1) == "\n"
-      local line = text:gsub("\n+$", "")
-      local prev_line = full_line[bufnr] or ""
-      full_line[bufnr] = prev_line .. line
-      if not contains_newline then
-        return
-      end
-      local has_focus = bufnr == vim.api.nvim_get_current_buf()
-      local move_to_end = false
-      if has_focus then
-        local cursor = vim.api.nvim_win_get_cursor(0)
-        move_to_end = not had_focus or cursor[1] == vim.api.nvim_buf_line_count(bufnr)
-        had_focus = true
-      else
-        had_focus = false
-      end
-      local a = -1
-      local b = -1
-      -- if the file is empty write on line 0 instead
-      local line_count = vim.api.nvim_buf_line_count(bufnr)
-      if line_count == 0 or line_count == 1 and vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)[1] == "" then
-        move_to_end = has_focus
-        a = 0
-        b = 0
-      end
-      last_hl[bufnr] = nil
-      vim.bo[bufnr].modifiable = true
-      vim.bo[bufnr].readonly = false
-      vim.api.nvim_buf_set_lines(bufnr, a, b, false, { full_line[bufnr] })
-      local last_line = a == 0 and b == 0 and 1 or vim.api.nvim_buf_line_count(bufnr)
-      local last_line_text = vim.api.nvim_buf_get_lines(bufnr, last_line - 1, last_line, false)
-          [1] or
-          ""
-      highlight_line({
-        bufnr = bufnr,
-        text = last_line_text,
-        row = last_line - 1,
-        hl = hl,
-      })
-      vim.bo[bufnr].modified = false
-      full_line[bufnr] = nil
-      if move_to_end and has_focus then
-        vim.api.nvim_win_set_cursor(0, { vim.api.nvim_buf_line_count(bufnr), 0 })
-      end
-    end)
-    vim.bo[bufnr].modifiable = modifiable
-    vim.bo[bufnr].readonly = readonly
-    if in_insert_mode then
-      pcall(function()
-        vim.api.nvim_buf_call(bufnr, function()
-          vim.cmd("startinsert")
-          vim.bo[bufnr].modified = false
-        end)
-      end)
-    end
-  end)
-end
-
-function highlight_line(opts)
-  pcall(function()
-    local text = opts.text
-    if type(text) ~= "string" or text == "" then
-      return
-    end
-    local hl = opts.hl
-    local bufnr = opts.bufnr
-    local row = opts.row
-    local start_col = 0
-    local last_col = #text
-    local config = require "spur.config"
-    local prefix = config.prefix
-    local prefix_len = #prefix
-    if
-        prefix_len > 0
-        and #text >= prefix_len
-        and text:sub(1, prefix_len) == prefix then
-      start_col = prefix_len
-      ---@diagnostic disable-next-line
-      vim.api.nvim_buf_add_highlight(bufnr, -1, config.hl.prefix, row, 0, start_col)
-    elseif type(hl) ~= "string" or hl == "" then
-      local build_successful = text:match("^BUILD SUCCESSFUL ")
-      if build_successful then
-        local partial_hl = config.hl.success
-        start_col = #build_successful
-        last_col = #text
-        ---@diagnostic disable-next-line
-        vim.api.nvim_buf_add_highlight(bufnr, -1, partial_hl, row, 0, start_col)
-      end
-    end
-    if type(hl) ~= "string" or hl == "" then
-      return
-    end
-    ---@diagnostic disable-next-line
-    vim.api.nvim_buf_add_highlight(bufnr, -1, hl, row, start_col, last_col)
-  end)
 end
 
 function set_output_buf_options(bufnr)

@@ -4,6 +4,7 @@
 ---@field filetype string|nil
 ---@field prefix string|nil
 ---@field title string|nil
+---@field custom_hl boolean|function|nil
 
 ---@type SpurConfig|nil
 local config = nil
@@ -27,6 +28,9 @@ local function setup_config(opts)
   end
   if type(c.prefix) ~= "string" or c.prefix == "" then
     c.prefix = "• [SPUR]: "
+  end
+  if c.custom_hl ~= false and type(c.custom_hl) ~= "function" then
+    c.custom_hl = true
   end
   if type(c.extensions) ~= "table" then
     c.extensions = {}

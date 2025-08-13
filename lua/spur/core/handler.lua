@@ -47,9 +47,14 @@ function SpurJobHandler:close_job_output(job)
   if type(bufnr) ~= "number" or not vim.api.nvim_buf_is_valid(bufnr) then
     error("SpurJob buffer is not available")
   end
+  local config = require "spur.config"
   local closed = false
   for _, win in ipairs(vim.api.nvim_list_wins()) do
-    if vim.api.nvim_win_get_buf(win) == bufnr then
+    local buf = vim.api.nvim_win_get_buf(win)
+    if buf == bufnr or
+        (vim.bo[buf].filetype == config.filetype
+          and vim.bo[buf].buftype == "prompt")
+    then
       vim.api.nvim_win_close(win, true)
       closed = true
     end
