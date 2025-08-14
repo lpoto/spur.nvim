@@ -7,17 +7,26 @@ local SpurWriter = {}
 SpurWriter.__index = SpurWriter
 SpurWriter.__type = "SpurWriter"
 
+local create_job_buffer
+
 ---@class SpurWriteInput
 ---@field hl string|nil
 ---@field message string|table
 
----@param bufnr number
-function SpurWriter:new(bufnr)
-  if not bufnr or type(bufnr) ~= "number" then
-    error("Invalid buffer number provided. It must be a number.")
-  end
+
+---@class SpurWriterNormalizedInput
+---@field text string
+---@field highlights SpurWriterHighlight[]|nil
+
+---@class SpurWriterHighlight
+---@field start_col number|nil
+---@field end_col number|nil
+---@field hl string
+
+---@param job SpurJob
+function SpurWriter:new(job)
   local instance = setmetatable({
-    __buffer = bufnr,
+    __buffer = create_job_buffer(job),
     __write_delay_ms = 50,
   }, self)
   return instance
@@ -27,12 +36,21 @@ end
 local queue = {}
 local group_inputs
 
+---@return number|nil
+function SpurWriter:get_bufnr()
+  local bufnr = self.__buffer
+  if type(bufnr) ~= "number" then
+    return nil
+  end
+  return bufnr
+end
+
 ---@param o SpurWriteInput
 function SpurWriter:write(o)
   if not o or type(o) ~= "table" then
     return
   end
-  local bufnr = self.__buffer
+  local bufnr = self:get_bufnr()
   if type(bufnr) ~= "number" then
     return
   end
@@ -92,21 +110,37 @@ function SpurWriter:__empty_queue()
     end
   end
   for _, o in ipairs(to_write) do
-    local lines = self:__normalize_lines(o.message)
+    local lines = self:__normalize_lines(o.message, o.hl)
     if type(lines) == "table" then
-      self:__write_lines(lines, o.hl)
+      self:__write_lines(lines)
     end
   end
 end
 
-function SpurWriter:__normalize_lines(message)
+local post_process_line
+local pre_process_line
+
+---@param message string|table
+---@return nil|SpurWriterNormalizedInput[]
+function SpurWriter:__normalize_lines(message, hl)
+  local lines = nil
   if type(message) == "table" then
-    return self:__normalize_lines_from_table(message)
+    lines = self:__normalize_lines_from_table(message)
   elseif type(message) == "string" then
-    return self:__normalize_lines_from_string(message)
-  else
+    lines = self:__normalize_lines_from_string(message)
+  end
+  if type(lines) ~= "table" then
     return nil
   end
+  local config = require "spur.config"
+  local actual_lines = {}
+  for _, line in ipairs(lines) do
+    local n = post_process_line(line, hl, config)
+    if n ~= nil then
+      table.insert(actual_lines, n)
+    end
+  end
+  return actual_lines
 end
 
 --- NOTE: This is still unstable, and needs to be improved
@@ -120,6 +154,7 @@ function SpurWriter:__normalize_lines_from_table(message)
   local last_empty = 1
   for _, line in ipairs(message) do
     if type(line) == "string" then
+      line = pre_process_line(line)
       if line == "" then
         if last_empty > 1 then
           table.insert(lines, "")
@@ -146,6 +181,7 @@ function SpurWriter:__normalize_lines_from_string(message)
   if type(message) ~= "string" then
     return lines
   end
+  message = pre_process_line(message)
   if type(self.__remainder) == "string" and self.__remainder ~= "" then
     message = self.__remainder .. message
     self.__remainder = nil
@@ -171,12 +207,14 @@ function SpurWriter:__normalize_lines_from_string(message)
 end
 
 local focus = nil
-function SpurWriter:__write_lines(lines, hl)
-  local bufnr = self.__buffer
-  if type(bufnr) ~= "number" then
-    return
-  end
+
+---@param lines SpurWriterNormalizedInput[]
+function SpurWriter:__write_lines(lines)
   vim.schedule(function()
+    local bufnr = self:get_bufnr()
+    if type(bufnr) ~= "number" then
+      return
+    end
     if type(bufnr) ~= "number" or not vim.api.nvim_buf_is_valid(bufnr) then
       return
     end
@@ -218,22 +256,42 @@ function SpurWriter:__write_lines(lines, hl)
         move_to_end = has_focus
         a = 0
         b = 0
-        last_line = -1
+        last_line = 0
       end
       vim.bo[bufnr].modifiable = true
       vim.bo[bufnr].readonly = false
-      vim.api.nvim_buf_set_lines(bufnr, a, b, false, lines)
-      local added_lines = #lines
-      for i = 1, added_lines do
-        local line_nr = last_line + i
-        local line_text = vim.api.nvim_buf_get_lines(bufnr, line_nr, line_nr + 1, false)[1] or ""
-        self:__highlight_line({
-          bufnr = bufnr,
-          text = line_text,
-          row = line_nr,
-          hl = hl,
-        })
+
+      local added = {}
+      local texts = {}
+      for _, line in ipairs(lines) do
+        if type(line) == "table" and type(line.text) == "string" then
+          table.insert(texts, line.text)
+          table.insert(added, line)
+        end
       end
+      vim.api.nvim_buf_set_lines(bufnr, a, b, false, texts)
+      local added_lines = #texts
+      pcall(function()
+        for i = 1, added_lines do
+          local line = added[i]
+          if type(line) == "table"
+              and type(line.highlights) == "table"
+              and #line.highlights > 0
+          then
+            local line_nr = last_line + i - 1
+            for _, o in ipairs(line.highlights) do
+              if type(o.hl) == "string" and o.hl ~= "" then
+                pcall(function()
+                  local start_col = o.start_col or 0
+                  local end_col = o.end_col or -1
+                  ---@diagnostic disable-next-line
+                  vim.api.nvim_buf_add_highlight(bufnr, -1, o.hl, line_nr, start_col, end_col)
+                end)
+              end
+            end
+          end
+        end
+      end)
 
       vim.bo[bufnr].modified = false
       if move_to_end and has_focus then
@@ -249,83 +307,6 @@ function SpurWriter:__write_lines(lines, hl)
           vim.bo[bufnr].modified = false
         end)
       end)
-    end
-  end)
-end
-
-local handle_default_highlights
-
-function SpurWriter:__highlight_line(opts)
-  pcall(function()
-    local text = opts.text
-    if type(text) ~= "string" or text == "" then
-      return
-    end
-    local hl = opts.hl
-    if type(hl) ~= "string" or hl == "" then
-      hl = nil
-    end
-
-    local bufnr = opts.bufnr
-    local row = opts.row
-    local start_col = 0
-    local last_col = #text
-    local config = require "spur.config"
-    local prefix = config.prefix
-    local prefix_len = #prefix
-    if
-        prefix_len > 0
-        and #text >= prefix_len
-        and text:sub(1, prefix_len) == prefix then
-      start_col = prefix_len
-      ---@diagnostic disable-next-line
-      vim.api.nvim_buf_add_highlight(bufnr, -1, config.hl.prefix, row, 0, start_col)
-    elseif type(hl) ~= "string" or hl == "" then
-      handle_default_highlights(bufnr, text, row, config)
-    end
-    if type(hl) ~= "string" or hl == "" then
-      return
-    end
-    ---@diagnostic disable-next-line
-    vim.api.nvim_buf_add_highlight(bufnr, -1, hl, row, start_col, last_col)
-  end)
-end
-
---- Add some custom highlights to the written row,
---- by checking for some common patterns.
----
---- If config.custom_hl is a function, it will be called instead.
----
---- If config.custom_hl ~= true, the default highlights will
---- not be applied.
-function handle_default_highlights(bufnr, text, row, config)
-  if type(text) ~= "string" or text == "" then
-    return
-  end
-  if type(config) ~= "table" then
-    return
-  end
-  if type(config.hl) ~= "table" then
-    return
-  end
-  vim.schedule(function()
-    if type(config.custom_hl) == "function" then
-      return config.custom_hl(text, row)
-    end
-    if config.custom_hl ~= true then
-      return
-    end
-    local build_successful = text:match("^BUILD SUCCESSFUL ")
-    if build_successful then
-      local partial_hl = config.hl.success
-      ---@diagnostic disable-next-line
-      vim.api.nvim_buf_add_highlight(bufnr, -1, partial_hl, row, 0, #build_successful)
-      return
-    end
-    if text:match("^> Task :") then
-      local partial_hl = config.hl.debug
-      ---@diagnostic disable-next-line
-      vim.api.nvim_buf_add_highlight(bufnr, -1, partial_hl, row, 0, -1)
     end
   end)
 end
@@ -354,6 +335,318 @@ function group_inputs(i1, i2)
     hl = i1.hl,
     message = new_message,
   }
+end
+
+---@param str string
+---@return string
+function pre_process_line(str)
+  if type(str) ~= "string" then
+    return str
+  end
+  local s = str:gsub('\r', '')
+  return s
+end
+
+local get_default_highlights
+
+---@param str string
+---@param hl string
+---@param config SpurConfig
+---@return SpurWriterNormalizedInput|nil
+function post_process_line(str, hl, config)
+  if type(str) ~= "string" then
+    return nil
+  end
+  local highlights = nil
+  local old_str = str
+  str = str:gsub('\27%[[%d;]*m', '')
+  pcall(function()
+    if type(config) == "table" then
+      if type(config.custom_hl) == "function" then
+        highlights = config.custom_hl(old_str)
+      elseif config.custom_hl == true then
+        highlights = get_default_highlights(old_str, str, hl, config)
+      end
+    end
+    if type(highlights) ~= "table" then
+      highlights = nil
+    end
+  end)
+  return {
+    text = str,
+    highlights = highlights
+  }
+end
+
+local ansi_to_hl
+
+--- @param str_with_ansi string
+--- @param str string
+--- @param hl string|nil
+--- @param config SpurConfig
+--- @return SpurWriterHighlight[]|nil
+function get_default_highlights(str_with_ansi, str, hl, config)
+  if type(config) ~= "table" then
+    return nil
+  end
+  local highlihts = {}
+
+  if type(str) ~= "string" or str == "" then
+    return nil
+  end
+
+  local prefix = config.prefix
+  local prefix_len = type(config.prefix) == "string" and #prefix or 0
+  if type(hl) == "string" and hl ~= "" then
+    table.insert(highlihts, {
+      start_col = 0,
+      end_col = -1,
+      hl = hl,
+    })
+  end
+  if
+      prefix_len > 0
+      and #str >= prefix_len
+      and str:sub(1, prefix_len) == prefix then
+    table.insert(highlihts, {
+      end_col = prefix_len,
+      start_col = 0,
+      hl = config.hl.prefix,
+    })
+  end
+  if #highlihts > 0 then
+    return highlihts
+  end
+
+  if type(str_with_ansi) == "string" and str_with_ansi ~= str then
+    -- Parse ANSI escape codes for highlights
+    local ansi_escape = "\27%[([%d;]*)m"
+    local last_end = 1
+    local col = 0
+    local active_hl = nil
+    local s = str_with_ansi
+    while true do
+      local start_idx, end_idx, codes = s:find(ansi_escape, last_end)
+      if not start_idx then break end
+      if start_idx > last_end then
+        if active_hl then
+          table.insert(highlihts, {
+            start_col = col,
+            end_col = col + (start_idx - last_end),
+            hl = active_hl,
+          })
+        end
+        col = col + (start_idx - last_end)
+      end
+      -- Only use the first code for simplicity
+      local code = codes:match("(%d+)")
+      active_hl = ansi_to_hl(code, config)
+      if active_hl == nil then
+        vim.notify(code)
+      end
+      last_end = end_idx + 1
+    end
+    -- Handle trailing text after last escape
+    if last_end <= #s and active_hl then
+      table.insert(highlihts, {
+        start_col = col,
+        end_col = -1,
+        hl = active_hl,
+      })
+    end
+    if #highlihts > 0 then
+      return highlihts
+    end
+  end
+
+  --- NOTE: Next we define some of our custom highlights,
+  --- that are not covered by the ansi codes.
+  ---
+  --- These should be more sophisticated,
+  --- and maybe based on the job's cmd.
+
+  if str:match("^make: *** ") or str:match("^Makefile:") then
+    table.insert(highlihts, {
+      start_col = 0,
+      end_col = -1,
+      hl = config.hl.debug,
+    })
+    return highlihts
+  end
+
+  local build_successful = str:match("^BUILD SUCCESSFUL ")
+  if build_successful then
+    table.insert(highlihts, {
+      start_col = 0,
+      end_col = #build_successful,
+      hl = config.hl.success,
+    })
+    return highlihts
+  end
+  local build_failed = str:match("^BUILD FAILED ")
+  if build_failed then
+    table.insert(highlihts, {
+      start_col = 0,
+      end_col = #build_failed,
+      hl = config.hl.error,
+    })
+    return highlihts
+  end
+  local failure = str:match("^FAILURE: ")
+  if failure then
+    table.insert(highlihts, {
+      start_col = 0,
+      end_col = #failure,
+      hl = config.hl.error,
+    })
+    return highlihts
+  end
+  for _, p in ipairs({ "^> " }) do
+    if str:match(p) then
+      table.insert(highlihts, {
+        start_col = 0,
+        end_col = -1,
+        hl = config.hl.debug,
+      })
+      return highlihts
+    end
+  end
+
+  if str:match("^> Task :") then
+    table.insert(highlihts, {
+      start_col = 0,
+      end_col = #str,
+      hl = config.hl.debug,
+    })
+    return highlihts
+  end
+  return highlihts
+end
+
+local set_output_buf_options
+function create_job_buffer(job, on_input)
+  if type(job) ~= "table"
+      or type(job.get_id) ~= "function"
+      or job.__type ~= "SpurJob" then
+    error("create_job_buffer expects a SpurJob instance in 'job' option")
+  end
+  local bufnr = vim.api.nvim_create_buf(false, true)
+  set_output_buf_options(bufnr)
+  if type(on_input) == "function" then
+    vim.fn.prompt_setcallback(bufnr, function(text)
+      on_input(text, bufnr)
+    end)
+  end
+  vim.fn.prompt_setinterrupt(bufnr, function()
+    job:kill()
+  end)
+  return bufnr
+end
+
+function set_output_buf_options(bufnr)
+  local config = require "spur.config"
+  local set_opts = function()
+    vim.bo[bufnr].swapfile = false
+    vim.bo[bufnr].bufhidden = "hide"
+    vim.bo[bufnr].buflisted = false
+    vim.bo[bufnr].undolevels = -1
+    vim.bo[bufnr].modifiable = false
+    vim.bo[bufnr].readonly = true
+    vim.bo[bufnr].modified = false
+    vim.bo[bufnr].filetype = config.filetype
+    vim.bo[bufnr].buftype = "prompt"
+    vim.fn.prompt_setprompt(bufnr, "")
+  end
+  set_opts()
+
+  local group = vim.api.nvim_create_augroup("SpurJobAugroup_Insert", { clear = false })
+  vim.api.nvim_create_autocmd({ "InsertEnter" }, {
+    buffer = bufnr,
+    group = group,
+    callback = function()
+      vim.schedule(function()
+        pcall(set_opts)
+        if bufnr ~= vim.api.nvim_get_current_buf() then
+          return
+        end
+        -- NOTE: Move cursor to the end of file when trying to
+        -- insert something.
+        pcall(function()
+          local last_line = vim.api.nvim_buf_line_count(bufnr)
+          local last_line_text = vim.api.nvim_buf_get_lines(bufnr, last_line - 1, last_line, false)
+              [1] or ""
+          local last_col = #last_line_text
+          vim.api.nvim_win_set_cursor(0, { last_line, last_col })
+        end)
+        pcall(function()
+          vim.cmd("stopinsert")
+        end)
+      end)
+    end,
+  })
+  return bufnr
+end
+
+---@param ansi_code string
+function ansi_to_hl(ansi_code, config)
+  if type(ansi_code) == "number" then
+    ansi_code = tostring(ansi_code)
+  end
+  if type(ansi_code) ~= "string" or ansi_code == "" then
+    return nil
+  end
+  local map = {
+    -- Foreground colors
+    ["30"] = config.hl.black or "Comment",
+    ["31"] = config.hl.error or "ErrorMsg",
+    ["32"] = config.hl.success or "String",
+    ["33"] = config.hl.warn or "WarningMsg",
+    ["34"] = config.hl.info or "Information",
+    ["35"] = config.hl.debug or "Comment",
+    ["36"] = config.hl.hint or "Special",
+    ["37"] = config.hl.default or "Normal",
+
+    -- Bright foreground colors
+    ["90"] = config.hl.black or "Comment",
+    ["91"] = config.hl.error or "ErrorMsg",
+    ["92"] = config.hl.success or "String",
+    ["93"] = config.hl.warn or "WarningMsg",
+    ["94"] = config.hl.info or "Information",
+    ["95"] = config.hl.debug or "Comment",
+    ["96"] = config.hl.hint or "Special",
+    ["97"] = config.hl.default or "Normal",
+
+    -- Reset and default
+    ["0"] = config.hl.default or "Normal",
+    ["39"] = config.hl.default or "Normal",
+
+    -- Styles (bold, underline, etc.)
+    ["1"] = config.hl.bold or "Bold",
+    ["4"] = config.hl.underline or "Underlined",
+    ["22"] = config.hl.default or "Normal", -- Normal intensity
+    ["2"] = config.hl.default or "NonText", -- Faint
+
+    -- Background colors (optional, map to existing highlights or define new ones)
+    ["40"] = config.hl.bg_black or "Normal",
+    ["41"] = config.hl.bg_error or "ErrorMsg",
+    ["42"] = config.hl.bg_success or "String",
+    ["43"] = config.hl.bg_warn or "WarningMsg",
+    ["44"] = config.hl.bg_info or "Information",
+    ["45"] = config.hl.bg_debug or "Comment",
+    ["46"] = config.hl.bg_hint or "Special",
+    ["47"] = config.hl.bg_default or "Normal",
+
+    -- Bright backgrounds
+    ["100"] = config.hl.bg_black or "Normal",
+    ["101"] = config.hl.bg_error or "ErrorMsg",
+    ["102"] = config.hl.bg_success or "String",
+    ["103"] = config.hl.bg_warn or "WarningMsg",
+    ["104"] = config.hl.bg_info or "Information",
+    ["105"] = config.hl.bg_debug or "Comment",
+    ["106"] = config.hl.bg_hint or "Special",
+    ["107"] = config.hl.bg_default or "Normal",
+  }
+  return map[ansi_code]
 end
 
 return SpurWriter

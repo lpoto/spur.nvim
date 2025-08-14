@@ -40,7 +40,7 @@ local function setup_config(opts)
   end
   local hl = {}
   if type(c.hl.warn) ~= "string" then
-    hl.warn = "Warning"
+    hl.warn = "WarningMsg"
   else
     hl.warn = c.hl.warn
   end
@@ -63,6 +63,11 @@ local function setup_config(opts)
     hl.success = "Label"
   else
     hl.success = c.hl.success
+  end
+  if type(c.hl.error) ~= "string" then
+    hl.error = "ErrorMsg"
+  else
+    hl.error = c.hl.error
   end
   c.hl = hl
 
