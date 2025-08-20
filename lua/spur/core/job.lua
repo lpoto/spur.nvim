@@ -341,12 +341,19 @@ function start_job(job, bufnr)
   end
 
   local jobstart = function(term)
+    local working_dir = job.job.working_dir
+    if type(working_dir) == "string" and working_dir ~= "" then
+      working_dir = vim.fn.expand(working_dir)
+    else
+      working_dir = nil
+    end
+
     local job_id
     job_id = vim.fn.jobstart(
       job.job.cmd,
       {
         term = term,
-        cwd = job.job.working_dir,
+        cwd = working_dir,
         detach = false,
         on_exit = function(_, code, msg)
           private_opts.job_id = nil
