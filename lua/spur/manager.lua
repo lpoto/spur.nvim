@@ -1,5 +1,4 @@
 local M = {}
-
 local jobs = {}
 local format_job_name
 local quick_run_counter = 1
@@ -111,6 +110,24 @@ function M.quick_run(cmd)
   handler:open_job_output(job)
 end
 
+local job_is_available
+
+--- Get all currently available jobs
+--- @return SpurJob[]
+function M.get_jobs()
+  local all_jobs = vim.tbl_values(jobs)
+  local filtered_jobs = {}
+  if type(all_jobs) == "table" then
+    for _, job in ipairs(all_jobs) do
+      local ok, result = pcall(job_is_available, job)
+      if ok and result == true then
+        table.insert(filtered_jobs, job)
+      end
+    end
+  end
+  return filtered_jobs
+end
+
 local is_quick_run
 
 --- Select a job from the list of available jobs.
@@ -126,7 +143,7 @@ function M.select_job(filter, on_select, skip_selection_if_one_result)
     return
   end
   local filtered_jobs = {}
-  for _, job in ipairs(vim.tbl_values(jobs)) do
+  for _, job in ipairs(vim.tbl_values(M.get_jobs())) do
     local handler = M.__find_handler(job)
     if #handler:__get_job_actions(job) > 0 then
       if type(filter) ~= "function" then
@@ -288,6 +305,32 @@ end
 
 function is_quick_run(str)
   return string.match(str, "^Quick run %[%d+%]$") ~= nil
+end
+
+---@param job SpurJob
+---@return boolean
+function job_is_available(job)
+  if type(job) ~= "table" or job.__type ~= "SpurJob" then
+    return false
+  end
+  if type(job.condition) ~= "table" then
+    return true
+  end
+  if type(job.condition.dir) ~= "string" then
+    return true
+  end
+  local dir = vim.fn.expand(job.condition.dir)
+  dir = string.sub(dir, -1) == "/" and dir or dir .. "/"
+  local current_dir = vim.fn.getcwd()
+  current_dir = string.sub(current_dir, -1) == "/" and current_dir or current_dir .. "/"
+
+  local support_subdirs = job.condition.show_in_subdirs == nil
+      or job.condition.show_in_subdirs == true
+  if not support_subdirs then
+    return dir == current_dir
+  end
+  return string.sub(current_dir, 1, #dir) == dir
+      or string.sub(current_dir, 1, #dir + 1) == dir .. "/"
 end
 
 return M

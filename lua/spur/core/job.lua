@@ -6,9 +6,14 @@
 ---@field on_start function|nil
 ---@field on_clean function|nil
 ---@field job SpurJobData|nil
+---@field condition SpurJobCondition|nil
 local SpurJob = {}
 SpurJob.__index = SpurJob
 SpurJob.__type = "SpurJob"
+
+---@class SpurJobCondition
+---@field dir string|nil
+---@field show_in_subdirs boolean|nil
 
 ---@class SpurJobData
 ---@field cmd string
@@ -58,6 +63,19 @@ function SpurJob:new(opts)
   if opts.order ~= nil and type(opts.order) ~= "number" then
     error("SpurJob:new expects 'order' to be a number if provided")
   end
+  if opts.condition ~= nil and type(opts.condition) ~= "table" then
+    error("SpurJob:new expects 'condition' to be a table if provided")
+  end
+  if opts.condition ~= nil then
+    if opts.condition.dir ~= nil and type(opts.condition.dir) ~= "string" then
+      error("SpurJob:new expects 'condition.dir' to be a string if provided")
+    end
+    if opts.condition.show_in_subdirs ~= nil
+        and type(opts.condition.show_in_subdirs) ~= "boolean"
+    then
+      error("SpurJob:new expects 'condition.show_in_subdirs' to be a boolean if provided")
+    end
+  end
   id_counter = id_counter + 1
   local private_opts = {
     id = id_counter,
@@ -72,6 +90,7 @@ function SpurJob:new(opts)
     on_exit = opts.on_exit,
     on_start = opts.on_start,
     on_clean = opts.on_clean,
+    condition = opts.condition,
   }, self)
   private[instance] = private_opts
   return instance
