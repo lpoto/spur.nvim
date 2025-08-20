@@ -166,7 +166,7 @@ function SpurJobHandler:__set_output_window_options(win_id, job)
     group = group,
     buffer = buf,
     once = false,
-    callback = function(opts)
+    callback = function()
       local close = function()
         local config = require "spur.config"
         local new_buf = vim.api.nvim_get_current_buf()
@@ -189,7 +189,9 @@ function SpurJobHandler:__set_output_window_options(win_id, job)
           vim.api.nvim_win_close(win_id, true)
         end)
         self:close_job_output(job)
-        vim.api.nvim_del_autocmd(id)
+        pcall(function()
+          vim.api.nvim_del_autocmd(id)
+        end)
         return true
       end
       vim.defer_fn(close, 25)

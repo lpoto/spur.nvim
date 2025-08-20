@@ -208,6 +208,48 @@ function SpurDapJob:is_stopped()
   return false
 end
 
+function SpurDapJob:__send_signal(name)
+  if type(name) ~= "string" or name == "" then
+    return
+  end
+  local config = require "spur.config"
+  local writer = self:__get_writer()
+  if writer ~= nil then
+    writer:write({
+      message = "\n" .. config.prefix .. "Signal - " .. name .. "\n",
+      hl = config.hl.debug,
+    })
+  end
+end
+
+---@return SpurDapWriter|nil
+function SpurDapJob:__get_writer()
+  local private_opts = private[self]
+  if type(private_opts) ~= "table" then
+    return nil
+  end
+  return type(private_opts.writer) == "table" and private_opts.writer or nil
+end
+
+--- Get the buffer number associated with the job,
+--- bufnr is only available after the job has been started,
+--- and the job's buffer still exists.
+---
+--- @return number|nil
+function SpurDapJob:get_bufnr()
+  local private_opts = private[self]
+  if type(private_opts) == "table"
+      and type(private_opts.writer) == "table"
+      and type(vim.api) == "table"
+      and type(vim.api.nvim_buf_is_valid) == "function"
+      and type(private_opts.writer:get_bufnr()) == "number"
+      and vim.api.nvim_buf_is_valid(private_opts.writer:get_bufnr())
+  then
+    return private_opts.writer:get_bufnr()
+  end
+  return nil
+end
+
 --- Get the status associated with the job.
 ---
 ---@return string|nil
@@ -226,7 +268,41 @@ function SpurDapJob:get_status()
   return status
 end
 
-function SpurDapJob:__start_job(bufnr)
+--- Run the job with the command specified when creating the instance.
+--- The job cannot be run, if it is already running.
+function SpurDapJob:run()
+  local private_opts = private[self]
+  if not private_opts then
+    error("SpurJob instance is not properly initialized")
+  end
+  local existing_buf = self:get_bufnr()
+  local winids = vim.api.nvim_list_wins()
+
+  self:__start_job()
+
+  pcall(function()
+    local config = require "spur.config"
+    for _, winid in ipairs(winids) do
+      local buf = vim.api.nvim_win_get_buf(winid)
+      if buf == existing_buf
+          or (vim.bo[buf].filetype == config.filetype
+            and vim.bo[buf].buftype == "prompt")
+      then
+        pcall(function()
+          vim.api.nvim_win_close(winid, true)
+        end)
+      end
+    end
+  end)
+  pcall(function()
+    if existing_buf ~= nil and vim.api.nvim_buf_is_valid(existing_buf) then
+      -- If the job was already running, we need to clean up the old buffer.
+      vim.api.nvim_buf_delete(existing_buf, { force = true })
+    end
+  end)
+end
+
+function SpurDapJob:__start_job()
   if not self:can_run() then
     error("SpurDapJob:run cannot be run at this time")
   end
@@ -331,8 +407,16 @@ function SpurDapJob:__start_job(bufnr)
   end
   private_opts.session = new_session
   local config = require "spur.config"
-  local writer = self:__get_writer()
+  local writer = nil
+  if not self:is_quiet() then
+    writer = require("spur.extension.dap.writer"):new(self)
+    private_opts.writer = writer
+  else
+    private_opts.writer = nil
+  end
+  local bufnr = nil
   if writer ~= nil then
+    bufnr = writer:get_bufnr()
     local msg = config.prefix
     local name = self:get_name()
     if type(name) == "string" and name ~= "" then
@@ -433,6 +517,54 @@ function SpurDapJob:__start_job(bufnr)
     end)
   end
   return bufnr
+end
+
+function SpurDapJob:__on_exit(opts)
+  local config = require "spur.config"
+  local writer = self:__get_writer()
+
+  if writer ~= nil then
+    writer:write_remainder()
+
+    if type(opts.exit_code) == "number" then
+      local hl = opts.exit_code == 0 and config.hl.info or config.hl.warn
+      writer:write({
+        message = "\n" .. config.prefix .. "Exited with code " .. opts.exit_code .. "\n",
+        hl = hl
+      })
+    elseif opts.killed == true then
+      writer:write({ message = "\n" .. config.prefix .. "Killed\n", hl = config.hl.warn })
+    else
+      writer:write({ message = "\n" .. config.prefix .. "Exited\n", hl = config.hl.info })
+    end
+  end
+  SpurJob.__on_exit(self, opts)
+  local bufnr = self:get_bufnr()
+  if type(bufnr) == "number"
+      and vim.api.nvim_buf_is_valid(bufnr) then
+    pcall(function()
+      vim.bo[bufnr].buftype = "prompt"
+    end)
+
+    vim.api.nvim_create_autocmd({ "InsertEnter" }, {
+      buffer = bufnr,
+      group = vim.api.nvim_create_augroup("SpurJobAugroup_Exit", { clear = false }),
+      callback = function()
+        vim.schedule(function()
+          pcall(function()
+            vim.cmd("stopinsert")
+          end)
+        end)
+      end,
+    })
+    pcall(function()
+      vim.api.nvim_buf_call(bufnr, function()
+        pcall(function()
+          vim.cmd("stopinsert")
+        end)
+      end)
+    end)
+  end
 end
 
 return SpurDapJob

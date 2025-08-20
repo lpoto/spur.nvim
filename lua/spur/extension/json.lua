@@ -79,13 +79,17 @@ function get_default_files()
   local files = {}
   for _, path in ipairs(locations) do
     if type(path) == "string" and path ~= "" then
-      local file = file_util.concat_path(path, "spur.json")
-      if file ~= nil and vim.fn.filereadable(file) == 1 then
-        table.insert(files, file)
-      end
-      file = file_util.concat_path(path, ".spur.json")
-      if file ~= nil and vim.fn.filereadable(file) == 1 then
-        table.insert(files, file)
+      for _, file in ipairs({
+        file_util.concat_path(path, "spur.json"),
+        file_util.concat_path(path, ".spur.json"),
+        file_util.concat_path(path, ".spur", "spur.json"),
+        file_util.concat_path(path, "spur", ".spur.json"),
+        file_util.concat_path(path, ".spur", "jobs.json"),
+        file_util.concat_path(path, "spur", "jobs.json")
+      }) do
+        if type(file) == "string" and vim.fn.filereadable(file) == 1 then
+          table.insert(files, file)
+        end
       end
     end
   end

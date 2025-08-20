@@ -1,11 +1,11 @@
----@class SpurWriter
+---@class SpurDapWriter
 ---@field __buffer number
 ---@field __processing boolean
 ---@field __waiting boolean
 ---@field __write_delay_ms number
-local SpurWriter = {}
-SpurWriter.__index = SpurWriter
-SpurWriter.__type = "SpurWriter"
+local SpurDapWriter = {}
+SpurDapWriter.__index = SpurDapWriter
+SpurDapWriter.__type = "SpurDapWriter"
 
 local create_job_buffer
 
@@ -14,17 +14,17 @@ local create_job_buffer
 ---@field message string|table
 
 
----@class SpurWriterNormalizedInput
+---@class SpurDapWriterNormalizedInput
 ---@field text string
----@field highlights SpurWriterHighlight[]|nil
+---@field highlights SpurDapWriterHighlight[]|nil
 
----@class SpurWriterHighlight
+---@class SpurDapWriterHighlight
 ---@field start_col number|nil
 ---@field end_col number|nil
 ---@field hl string
 
 ---@param job SpurJob
-function SpurWriter:new(job)
+function SpurDapWriter:new(job)
   local instance = setmetatable({
     __buffer = create_job_buffer(job),
     __write_delay_ms = 50,
@@ -37,7 +37,7 @@ local queue = {}
 local group_inputs
 
 ---@return number|nil
-function SpurWriter:get_bufnr()
+function SpurDapWriter:get_bufnr()
   local bufnr = self.__buffer
   if type(bufnr) ~= "number" then
     return nil
@@ -46,7 +46,7 @@ function SpurWriter:get_bufnr()
 end
 
 ---@param o SpurWriteInput
-function SpurWriter:write(o)
+function SpurDapWriter:write(o)
   if not o or type(o) ~= "table" then
     return
   end
@@ -79,7 +79,7 @@ function SpurWriter:write(o)
   end, delay)
 end
 
-function SpurWriter:write_remainder()
+function SpurDapWriter:write_remainder()
   if type(self.__remainder) ~= "string"
       or self.__remainder == ""
   then
@@ -92,7 +92,7 @@ function SpurWriter:write_remainder()
   })
 end
 
-function SpurWriter:__empty_queue()
+function SpurDapWriter:__empty_queue()
   if type(queue) ~= "table" or #queue == 0 then
     return
   end
@@ -120,13 +120,11 @@ end
 local post_process_line
 local pre_process_line
 
----@param message string|table
----@return nil|SpurWriterNormalizedInput[]
-function SpurWriter:__normalize_lines(message, hl)
+---@param message string
+---@return nil|SpurDapWriterNormalizedInput[]
+function SpurDapWriter:__normalize_lines(message, hl)
   local lines = nil
-  if type(message) == "table" then
-    lines = self:__normalize_lines_from_table(message)
-  elseif type(message) == "string" then
+  if type(message) == "string" then
     lines = self:__normalize_lines_from_string(message)
   end
   if type(lines) ~= "table" then
@@ -143,40 +141,7 @@ function SpurWriter:__normalize_lines(message, hl)
   return actual_lines
 end
 
---- NOTE: This is still unstable, and needs to be improved
---- to properly handle newlines,... as this usually receives
---- output from stdout and stderr and the lines are all weird.
-function SpurWriter:__normalize_lines_from_table(message)
-  local lines = {}
-  if type(message) ~= "table" then
-    return lines
-  end
-  local last_empty = 1
-  for _, line in ipairs(message) do
-    if type(line) == "string" then
-      line = pre_process_line(line)
-      if line == "" then
-        if last_empty > 1 then
-          table.insert(lines, "")
-        end
-        last_empty = last_empty + 1
-      elseif last_empty == 0 then
-        local last_line = lines[#lines]
-        if last_line:sub(-1) == " " or line:sub(1, 1) == " " then
-          lines[#lines] = last_line .. line
-        else
-          table.insert(lines, line)
-        end
-      else
-        last_empty = 0
-        table.insert(lines, line)
-      end
-    end
-  end
-  return lines
-end
-
-function SpurWriter:__normalize_lines_from_string(message)
+function SpurDapWriter:__normalize_lines_from_string(message)
   local lines = {}
   if type(message) ~= "string" then
     return lines
@@ -208,8 +173,8 @@ end
 
 local focus = nil
 
----@param lines SpurWriterNormalizedInput[]
-function SpurWriter:__write_lines(lines)
+---@param lines SpurDapWriterNormalizedInput[]
+function SpurDapWriter:__write_lines(lines)
   vim.schedule(function()
     local bufnr = self:get_bufnr()
     if type(bufnr) ~= "number" then
@@ -352,7 +317,7 @@ local get_default_highlights
 ---@param str string
 ---@param hl string
 ---@param config SpurConfig
----@return SpurWriterNormalizedInput|nil
+---@return SpurDapWriterNormalizedInput|nil
 function post_process_line(str, hl, config)
   if type(str) ~= "string" then
     return nil
@@ -384,7 +349,7 @@ local ansi_to_hl
 --- @param str string
 --- @param hl string|nil
 --- @param config SpurConfig
---- @return SpurWriterHighlight[]|nil
+--- @return SpurDapWriterHighlight[]|nil
 function get_default_highlights(str_with_ansi, str, hl, config)
   if type(config) ~= "table" then
     return nil
@@ -441,9 +406,6 @@ function get_default_highlights(str_with_ansi, str, hl, config)
       -- Only use the first code for simplicity
       local code = codes:match("(%d+)")
       active_hl = ansi_to_hl(code, config)
-      if active_hl == nil then
-        vim.notify(code)
-      end
       last_end = end_idx + 1
     end
     -- Handle trailing text after last escape
@@ -649,4 +611,4 @@ function ansi_to_hl(ansi_code, config)
   return map[ansi_code]
 end
 
-return SpurWriter
+return SpurDapWriter
