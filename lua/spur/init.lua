@@ -85,9 +85,7 @@ function M.toggle_output()
   local windows = vim.api.nvim_list_wins()
   for _, win in ipairs(windows) do
     local bufnr = vim.api.nvim_win_get_buf(win)
-    if vim.bo[bufnr].filetype == M.config().filetype
-        and vim.bo[bufnr].buftype == "prompt"
-    then
+    if vim.bo[bufnr].filetype == M.config().filetype then
       vim.api.nvim_win_close(win, true)
       return false
     end

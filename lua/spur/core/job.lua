@@ -416,7 +416,7 @@ function set_output_buf_options(bufnr)
     vim.bo[bufnr].modified = false
     vim.bo[bufnr].filetype = config.filetype
     vim.bo[bufnr].buftype = ""
-    vim.bo[bufnr].filetype = "spur-output"
+    vim.bo[bufnr].filetype = config.filetype
     vim.fn.prompt_setprompt(bufnr, "")
   end
   set_opts()
@@ -432,7 +432,7 @@ function set_output_buf_options(bufnr)
     callback = function()
       vim.api.nvim_buf_call(bufnr, function()
         vim.cmd("stopinsert")
-        vim.bo[bufnr].filetype = "spur-output"
+        vim.bo[bufnr].filetype = config.filetype
         vim.api.nvim_create_autocmd("TermEnter", {
           group = group,
           buffer = bufnr,
