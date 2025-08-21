@@ -260,7 +260,7 @@ function SpurJob:__send_signal(name)
   local config = require "spur.config"
   vim.api.nvim_chan_send(
     private_opts.job_id,
-    "\n\n" .. config.prefix .. "Signal - " .. name .. "\n")
+    "\n\n#" .. config.prefix .. "Signal - " .. name .. "\n")
 end
 
 --- Kills the job if it is running and deletes the job's buffer.
@@ -379,7 +379,7 @@ function start_job(job, bufnr)
 
   local config = require "spur.config"
   pcall(function()
-    vim.api.nvim_chan_send(job_id, config.prefix .. job.job.cmd .. "\n\n")
+    vim.api.nvim_chan_send(job_id, "#" .. config.prefix .. job.job.cmd .. "\n\n")
     if type(bufnr) == "number" then
       vim.api.nvim_buf_call(bufnr, function()
         vim.schedule(function()
@@ -417,6 +417,7 @@ function set_output_buf_options(bufnr)
     vim.bo[bufnr].modified = false
     vim.bo[bufnr].filetype = config.filetype
     vim.bo[bufnr].buftype = ""
+    vim.bo[bufnr].filetype = "spur-output"
     vim.fn.prompt_setprompt(bufnr, "")
   end
   set_opts()
@@ -430,13 +431,15 @@ function set_output_buf_options(bufnr)
     nested = true,
     once = true,
     callback = function()
-      vim.cmd("stopinsert")
-      vim.bo.filetype = "spur-output"
-      vim.api.nvim_create_autocmd("TermEnter", {
-        group = group,
-        buffer = bufnr,
-        callback = function() vim.cmd("stopinsert") end,
-      })
+      vim.api.nvim_buf_call(bufnr, function()
+        vim.cmd("stopinsert")
+        vim.bo[bufnr].filetype = "spur-output"
+        vim.api.nvim_create_autocmd("TermEnter", {
+          group = group,
+          buffer = bufnr,
+          callback = function() vim.cmd("stopinsert") end,
+        })
+      end)
     end,
   })
   return bufnr
