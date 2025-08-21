@@ -220,6 +220,11 @@ function SpurJobHandler:__set_output_window_mappings(job)
       self:close_job_output(job)
     end, { buffer = job:get_bufnr(), desc = "Close job output window" })
   end
+  for _, key in ipairs({ "Q", "<C-q>" }) do
+    vim.keymap.set("n", key, function()
+      job:clean()
+    end, { buffer = job:get_bufnr(), desc = "Clean job output" })
+  end
   for _, key in ipairs({ "<C-a>" }) do
     vim.keymap.set({ "n", "i" }, key, function()
       local manager = require "spur.manager"
