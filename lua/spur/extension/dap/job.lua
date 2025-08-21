@@ -167,6 +167,36 @@ end
 
 --- Continues the job if it has been stopped.
 function SpurDapJob:continue()
+  self:__execute_stopped_session_call(function(dap)
+    dap.continue({ new = false })
+  end)
+end
+
+function SpurDapJob:step_over()
+  self:__execute_stopped_session_call(function(dap)
+    dap.step_over()
+  end)
+end
+
+function SpurDapJob:step_into()
+  self:__execute_stopped_session_call(function(dap)
+    dap.step_into()
+  end)
+end
+
+function SpurDapJob:step_out()
+  self:__execute_stopped_session_call(function(dap)
+    dap.step_out()
+  end)
+end
+
+function SpurDapJob:step_back()
+  self:__execute_stopped_session_call(function(dap)
+    dap.step_back()
+  end)
+end
+
+function SpurDapJob:supports_step_back()
   local private_opts = private[self]
   if private_opts == nil then
     error("SpurDapJob instance is not properly initialized")
@@ -185,12 +215,7 @@ function SpurDapJob:continue()
   then
     return
   end
-  dap.continue({ new = false })
-end
-
---- Override run to start DAP session
-function SpurDapJob:__tostring()
-  return string.format("SpurDapJob(%s)", self:get_name())
+  return session.capabilities.supportsStepBack == true
 end
 
 function SpurDapJob:is_stopped()
@@ -206,29 +231,6 @@ function SpurDapJob:is_stopped()
     return true
   end
   return false
-end
-
-function SpurDapJob:__send_signal(name)
-  if type(name) ~= "string" or name == "" then
-    return
-  end
-  local config = require "spur.config"
-  local writer = self:__get_writer()
-  if writer ~= nil then
-    writer:write({
-      message = "\n" .. config.prefix .. "Signal - " .. name .. "\n",
-      hl = config.hl.debug,
-    })
-  end
-end
-
----@return SpurDapWriter|nil
-function SpurDapJob:__get_writer()
-  local private_opts = private[self]
-  if type(private_opts) ~= "table" then
-    return nil
-  end
-  return type(private_opts.writer) == "table" and private_opts.writer or nil
 end
 
 --- Get the buffer number associated with the job,
@@ -300,6 +302,59 @@ function SpurDapJob:run()
       vim.api.nvim_buf_delete(existing_buf, { force = true })
     end
   end)
+end
+
+function SpurDapJob:__send_signal(name)
+  if type(name) ~= "string" or name == "" then
+    return
+  end
+  local config = require "spur.config"
+  local writer = self:__get_writer()
+  if writer ~= nil then
+    writer:write({
+      message = "\n" .. config.prefix .. "Signal - " .. name .. "\n",
+      hl = config.hl.debug,
+    })
+  end
+end
+
+function SpurDapJob:__execute_stopped_session_call(call)
+  if type(call) ~= "function" then
+    return
+  end
+  local private_opts = private[self]
+  if private_opts == nil then
+    error("SpurDapJob instance is not properly initialized")
+  end
+  if private_opts.session == nil then
+    return
+  end
+  local ok, dap = pcall(require, "dap")
+  if not ok then
+    return
+  end
+  local session = dap.session()
+  if session == nil
+      or private_opts.session.id ~= session.id
+      or session.stopped_thread_id == nil
+  then
+    return
+  end
+  call(dap, session)
+end
+
+--- Override run to start DAP session
+function SpurDapJob:__tostring()
+  return string.format("SpurDapJob(%s)", self:get_name())
+end
+
+---@return SpurDapWriter|nil
+function SpurDapJob:__get_writer()
+  local private_opts = private[self]
+  if type(private_opts) ~= "table" then
+    return nil
+  end
+  return type(private_opts.writer) == "table" and private_opts.writer or nil
 end
 
 function SpurDapJob:__start_job()
