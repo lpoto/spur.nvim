@@ -162,7 +162,7 @@ function SpurJobHandler:__set_output_window_options(win_id, job)
     group = group,
   })
   local id
-  id = vim.api.nvim_create_autocmd({ "WinEnter", "WinLeave" }, {
+  id = vim.api.nvim_create_autocmd({ "WinLeave", "BufLeave" }, {
     group = group,
     buffer = buf,
     once = false,
