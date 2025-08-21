@@ -217,8 +217,7 @@ function SpurJob:run()
     for _, winid in ipairs(winids) do
       local buf = vim.api.nvim_win_get_buf(winid)
       if buf == existing_buf
-          or vim.bo[buf].filetype == config.filetype
-      then
+          or vim.bo[buf].filetype == config.filetype then
         pcall(function()
           vim.api.nvim_win_close(winid, true)
         end)

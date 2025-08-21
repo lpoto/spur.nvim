@@ -45,6 +45,9 @@ function SpurJobDapHandler:__get_job_actions(job)
     table.insert(actions, { label = "Step Over", value = "step_over" })
     table.insert(actions, { label = "Step Into", value = "step_into" })
     table.insert(actions, { label = "Step Out", value = "step_out" })
+    table.insert(actions, { label = "Scopes", value = "scopes" })
+    table.insert(actions, { label = "Frames", value = "frames" })
+    table.insert(actions, { label = "Threads", value = "threads" })
     if job:supports_step_back() then
       table.insert(actions, { label = "Step Back", value = "step_back" })
     end
@@ -76,6 +79,9 @@ function SpurJobDapHandler:__execute_job_action(job, action)
     return true
   end
   if action.value == "step_over"
+      or action.value == "scopes"
+      or action.value == "frames"
+      or action.value == "threads"
       or action.value == "step_into"
       or action.value == "step_out"
       or action.value == "step_back" then
@@ -84,8 +90,7 @@ function SpurJobDapHandler:__execute_job_action(job, action)
       local config = require "spur.config"
       for _, winid in ipairs(winids) do
         local buf = vim.api.nvim_win_get_buf(winid)
-        if vim.bo[buf].filetype == config.filetype
-        then
+        if vim.bo[buf].filetype == config.filetype then
           pcall(function()
             vim.api.nvim_win_close(winid, true)
           end)

@@ -196,6 +196,24 @@ function SpurDapJob:step_back()
   end)
 end
 
+function SpurDapJob:scopes()
+  self:__execute_stopped_session_call(function()
+    self:__get_widget("scopes"):open()
+  end)
+end
+
+function SpurDapJob:frames()
+  self:__execute_stopped_session_call(function()
+    self:__get_widget("frames"):open()
+  end)
+end
+
+function SpurDapJob:threads()
+  self:__execute_stopped_session_call(function()
+    self:__get_widget("threads"):open()
+  end)
+end
+
 function SpurDapJob:supports_step_back()
   local private_opts = private[self]
   if private_opts == nil then
@@ -355,6 +373,12 @@ function SpurDapJob:__get_writer()
     return nil
   end
   return type(private_opts.writer) == "table" and private_opts.writer or nil
+end
+
+---@param kind string
+---@return SpurDapWidget
+function SpurDapJob:__get_widget(kind)
+  return require("spur.extension.dap.widget"):new(kind, self)
 end
 
 function SpurDapJob:__start_job()

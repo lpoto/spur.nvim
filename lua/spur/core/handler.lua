@@ -111,27 +111,31 @@ function SpurJobHandler:open_job_output(job)
 end
 
 function SpurJobHandler:__open_float(job, bufnr)
-  local width = math.floor(vim.o.columns * 0.8)
-  local height = math.floor(vim.o.lines * 0.9)
-  local row = math.floor((vim.o.lines - height) / 2)
-  local col = math.floor((vim.o.columns - width) / 2)
-
-  local win_opts = {
-    relative = "editor",
-    width = width,
-    height = height,
-    row = row,
-    col = col,
-    title = job:get_name(),
-    title_pos = "center",
-    style = "minimal",
-    border = "rounded",
-  }
+  local win_opts = self.__get_win_opts("[output] " .. job:get_name())
 
   local win_id = vim.api.nvim_open_win(bufnr, true, win_opts)
   self:__set_output_window_options(win_id, job)
   self:__set_output_window_mappings(job)
   return win_id
+end
+
+function SpurJobHandler.__get_win_opts(title)
+  local width = math.floor(vim.o.columns * 0.8)
+  local height = math.floor(vim.o.lines * 0.9)
+  local row = math.floor((vim.o.lines - height) / 2)
+  local col = math.floor((vim.o.columns - width) / 2)
+
+  return {
+    relative = "editor",
+    width = width,
+    height = height,
+    row = row,
+    col = col,
+    title = title,
+    title_pos = "center",
+    style = "minimal",
+    border = "rounded",
+  }
 end
 
 --- Add options and autocommands to the output window.
@@ -156,11 +160,6 @@ function SpurJobHandler:__set_output_window_options(win_id, job)
   local buf = vim.api.nvim_win_get_buf(win_id)
 
   local group = vim.api.nvim_create_augroup("SpurJobAugroup_Win", { clear = true })
-  vim.api.nvim_clear_autocmds({
-    event = { "BufLeave" },
-    buffer = buf,
-    group = group,
-  })
   local id
   id = vim.api.nvim_create_autocmd({ "WinLeave", "BufLeave" }, {
     group = group,
@@ -194,7 +193,7 @@ function SpurJobHandler:__set_output_window_options(win_id, job)
         end)
         return true
       end
-      vim.defer_fn(close, 25)
+      vim.schedule(close)
     end,
   })
 end
@@ -245,13 +244,15 @@ function SpurJobHandler:__get_job_actions(job)
   if job:can_run() and not job:is_running() then
     table.insert(options, { label = "Run", value = "run" })
   end
-  if job:is_running() then
-    table.insert(options, { label = "Kill", value = "kill" })
-  end
   if job:can_show_output() then
     if not job:is_quiet() then
       table.insert(options, { label = "Output", value = "output" })
     end
+  end
+  if job:is_running() then
+    table.insert(options, { label = "Kill", value = "kill" })
+  end
+  if job:can_show_output() then
     table.insert(options, { label = "Clean", value = "clean" })
   end
   return options

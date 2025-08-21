@@ -27,7 +27,7 @@ local create_job_buffer
 function SpurDapWriter:new(job)
   local instance = setmetatable({
     __buffer = create_job_buffer(job),
-    __write_delay_ms = 50,
+    __write_delay_ms = 25,
   }, self)
   return instance
 end
