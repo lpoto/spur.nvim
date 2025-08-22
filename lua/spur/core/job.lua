@@ -313,6 +313,16 @@ function SpurJob:__on_exit(opts)
   if type(self.on_exit) == "function" then
     return self.on_exit(opts)
   end
+  pcall(function()
+    if type(vim.g.display_message) == "function" then
+      local config = require "spur.config"
+      vim.g.display_message {
+        message = "Exited: " .. self:get_name(),
+        title = config.title,
+      }
+    end
+  end)
+
   local private_opts = private[self]
   if type(private_opts) ~= "table" then
     return
@@ -323,6 +333,21 @@ function SpurJob:__on_exit(opts)
   end
   vim.bo[bufnr].buflisted = false
   vim.bo[bufnr].modified = false
+end
+
+function SpurJob:__on_start()
+  if type(self.on_start) == "function" then
+    self.on_start(self)
+  end
+  pcall(function()
+    if type(vim.g.display_message) == "function" then
+      local config = require "spur.config"
+      vim.g.display_message {
+        message = "Started: " .. self:get_name(),
+        title = config.title,
+      }
+    end
+  end)
 end
 
 ---@param job SpurJob
@@ -389,9 +414,7 @@ function start_job(job, bufnr)
       end)
     end
   end)
-  if type(job.on_start) == "function" then
-    job.on_start(job)
-  end
+  job:__on_start()
   private_opts.job_id = job_id
 end
 

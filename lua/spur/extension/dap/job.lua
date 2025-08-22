@@ -595,6 +595,7 @@ function SpurDapJob:__start_job()
       end
     end)
   end
+  self:__on_start()
   return bufnr
 end
 
