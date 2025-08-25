@@ -80,7 +80,8 @@ function parse_targets(file, content)
   local jobs = {}
   for line in content:gmatch("[^\r\n]+") do
     local target = line:match("^([%w-_%.]+):")
-    if target
+    if type(target) == "string"
+        and target ~= ""
         and target ~= "PHONY"
         and target ~= ".PHONY"
         and target ~= "default" then
