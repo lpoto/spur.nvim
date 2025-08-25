@@ -183,12 +183,15 @@ function SpurJob:get_bufnr()
   local private_opts = private[self]
   if type(private_opts) == "table"
       and type(private_opts.bufnr) == "number"
-      and type(vim.api) == "table"
-      and type(vim.api.nvim_buf_is_valid) == "function"
-      and vim.api.nvim_buf_is_valid(private_opts.bufnr)
   then
     return private_opts.bufnr
   end
+  vim.schedule(function()
+    if type(private_opts.bufnr) ~= "number"
+        or not vim.api.nvim_buf_is_valid(private_opts.bufnr) then
+      private_opts.bufnr = nil
+    end
+  end)
   return nil
 end
 
@@ -197,7 +200,7 @@ end
 --- @return boolean
 function SpurJob:can_show_output()
   local bufnr = self:get_bufnr()
-  return bufnr ~= nil and vim.api.nvim_buf_is_valid(bufnr)
+  return type(bufnr) == "number"
 end
 
 --- Check whether this job can be run
@@ -215,42 +218,44 @@ function SpurJob:run()
   if not private_opts then
     error("SpurJob instance is not properly initialized")
   end
-  local existing_buf = self:get_bufnr()
-  if self:is_quiet() then
-    private_opts.bufnr = nil
-  else
-    private_opts.bufnr = create_job_buffer(self)
-  end
-  local winids = vim.api.nvim_list_wins()
-
-  local ok, err = pcall(self.__start_job, self, private_opts.bufnr)
-  if not ok then
-    pcall(function()
-      local b = private_opts.bufnr
-      if type(b) == "number" and vim.api.nvim_buf_is_valid(b) then
-        vim.api.nvim_buf_delete(b, { force = true })
-      end
+  vim.schedule(function()
+    local existing_buf = self:get_bufnr()
+    if self:is_quiet() then
       private_opts.bufnr = nil
-    end)
-    error(err)
-  end
-  pcall(function()
-    local config = require "spur.config"
-    for _, winid in ipairs(winids) do
-      local buf = vim.api.nvim_win_get_buf(winid)
-      if buf == existing_buf
-          or vim.bo[buf].filetype == config.filetype then
-        pcall(function()
-          vim.api.nvim_win_close(winid, true)
-        end)
+    else
+      private_opts.bufnr = create_job_buffer(self)
+    end
+    local winids = vim.api.nvim_list_wins()
+
+    local ok, err = pcall(self.__start_job, self, private_opts.bufnr)
+    if not ok then
+      pcall(function()
+        local b = private_opts.bufnr
+        if type(b) == "number" and vim.api.nvim_buf_is_valid(b) then
+          vim.api.nvim_buf_delete(b, { force = true })
+        end
+        private_opts.bufnr = nil
+      end)
+      error(err)
+    end
+    pcall(function()
+      local config = require "spur.config"
+      for _, winid in ipairs(winids) do
+        local buf = vim.api.nvim_win_get_buf(winid)
+        if buf == existing_buf
+            or vim.bo[buf].filetype == config.filetype then
+          pcall(function()
+            vim.api.nvim_win_close(winid, true)
+          end)
+        end
       end
-    end
-  end)
-  pcall(function()
-    if existing_buf ~= nil and vim.api.nvim_buf_is_valid(existing_buf) then
-      -- If the job was already running, we need to clean up the old buffer.
-      vim.api.nvim_buf_delete(existing_buf, { force = true })
-    end
+    end)
+    pcall(function()
+      if existing_buf ~= nil and vim.api.nvim_buf_is_valid(existing_buf) then
+        -- If the job was already running, we need to clean up the old buffer.
+        vim.api.nvim_buf_delete(existing_buf, { force = true })
+      end
+    end)
   end)
 end
 
@@ -278,10 +283,12 @@ function SpurJob:__send_signal(name)
   if private_opts == nil or private_opts.job_id == nil then
     return
   end
-  local config = require "spur.config"
-  vim.api.nvim_chan_send(
-    private_opts.job_id,
-    "\n\n#" .. config.prefix .. "Signal - " .. name .. "\n")
+  vim.schedule(function()
+    local config = require "spur.config"
+    vim.api.nvim_chan_send(
+      private_opts.job_id,
+      "\n\n#" .. config.prefix .. "Signal - " .. name .. "\n")
+  end)
 end
 
 --- Kills the job if it is running and deletes the job's buffer.
@@ -290,20 +297,22 @@ function SpurJob:clean()
   if private_opts == nil then
     error("SpurJob instance is not properly initialized")
   end
-  local buf = self:get_bufnr()
   self:kill()
-  for _, win in ipairs(vim.api.nvim_list_wins()) do
-    if vim.api.nvim_win_get_buf(win) == buf then
-      vim.api.nvim_win_close(win, true)
+  vim.schedule(function()
+    local buf = self:get_bufnr()
+    for _, win in ipairs(vim.api.nvim_list_wins()) do
+      if vim.api.nvim_win_get_buf(win) == buf then
+        vim.api.nvim_win_close(win, true)
+      end
     end
-  end
-  if type(buf) == "number" and vim.api.nvim_buf_is_valid(buf) then
-    vim.api.nvim_buf_delete(buf, { force = true })
-    if type(self.on_clean) == "function" then
-      self.on_clean(self)
+    if type(buf) == "number" and vim.api.nvim_buf_is_valid(buf) then
+      vim.api.nvim_buf_delete(buf, { force = true })
+      if type(self.on_clean) == "function" then
+        pcall(self.on_clean, self)
+      end
     end
-  end
-  private_opts.bufnr = nil
+    private_opts.bufnr = nil
+  end)
 end
 
 ---@param bufnr number|nil
@@ -332,43 +341,49 @@ function SpurJob:__tostring()
 end
 
 function SpurJob:__on_exit(opts)
-  if type(self.on_exit) == "function" then
-    return self.on_exit(opts)
-  end
-  pcall(function()
-    if type(vim.g.display_message) == "function" then
-      local config = require "spur.config"
-      vim.g.display_message {
-        message = "Exited: " .. self:get_name(),
-        title = config.title,
-      }
+  vim.schedule(function()
+    if type(self.on_exit) == "function" then
+      pcall(self.on_exit, opts)
+      return
     end
-  end)
+    pcall(function()
+      if type(vim.g.display_message) == "function" then
+        local config = require "spur.config"
+        vim.g.display_message {
+          message = "Exited: " .. self:get_name(),
+          title = config.title,
+        }
+      end
+    end)
 
-  local private_opts = private[self]
-  if type(private_opts) ~= "table" then
-    return
-  end
-  local bufnr = self:get_bufnr()
-  if type(bufnr) ~= "number" then
-    return
-  end
-  vim.bo[bufnr].buflisted = false
-  vim.bo[bufnr].modified = false
+    local private_opts = private[self]
+    if type(private_opts) ~= "table" then
+      return
+    end
+    local bufnr = self:get_bufnr()
+    if type(bufnr) ~= "number"
+        or not vim.api.nvim_buf_is_valid(bufnr) then
+      return
+    end
+    vim.bo[bufnr].buflisted = false
+    vim.bo[bufnr].modified = false
+  end)
 end
 
 function SpurJob:__on_start()
-  if type(self.on_start) == "function" then
-    self.on_start(self)
-  end
-  pcall(function()
-    if type(vim.g.display_message) == "function" then
-      local config = require "spur.config"
-      vim.g.display_message {
-        message = "Started: " .. self:get_name(),
-        title = config.title,
-      }
+  vim.schedule(function()
+    if type(self.on_start) == "function" then
+      pcall(self.on_start, self)
     end
+    pcall(function()
+      if type(vim.g.display_message) == "function" then
+        local config = require "spur.config"
+        vim.g.display_message {
+          message = "Started: " .. self:get_name(),
+          title = config.title,
+        }
+      end
+    end)
   end)
 end
 
@@ -450,10 +465,10 @@ function create_job_buffer(job)
     error("create_job_buffer expects a SpurJob instance in 'job' option")
   end
   local bufnr = vim.api.nvim_create_buf(false, true)
-  return set_output_buf_options(bufnr)
+  return set_output_buf_options(bufnr, job)
 end
 
-function set_output_buf_options(bufnr)
+function set_output_buf_options(bufnr, job)
   local config = require "spur.config"
   local set_opts = function()
     vim.bo[bufnr].swapfile = false
@@ -485,6 +500,19 @@ function set_output_buf_options(bufnr)
           buffer = bufnr,
           callback = function() vim.cmd("stopinsert") end,
         })
+      end)
+    end,
+  })
+  local group2 = vim.api.nvim_create_augroup("SpurJobAugroup_buffer_kill", {})
+  vim.api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
+    buffer = bufnr,
+    group = group2,
+    once = true,
+    callback = function()
+      vim.schedule(function()
+        pcall(function()
+          job:clean()
+        end)
       end)
     end,
   })

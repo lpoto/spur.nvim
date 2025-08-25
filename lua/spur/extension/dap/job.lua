@@ -162,7 +162,22 @@ function SpurDapJob:kill()
   end
   killed[self:get_id()] = true
   self:__send_signal("interrupt")
-  dap.terminate()
+  vim.schedule(function()
+    dap.terminate()
+  end)
+end
+
+--- Kills the job if it is running and deletes the job's writer.
+function SpurDapJob:clean()
+  local private_opts = private[self]
+  if private_opts == nil then
+    error("SpurDapJob instance is not properly initialized")
+  end
+  SpurJob.clean(self)
+
+  vim.schedule(function()
+    private_opts.writer = nil
+  end)
 end
 
 --- Continues the job if it has been stopped.
@@ -260,10 +275,7 @@ function SpurDapJob:get_bufnr()
   local private_opts = private[self]
   if type(private_opts) == "table"
       and type(private_opts.writer) == "table"
-      and type(vim.api) == "table"
-      and type(vim.api.nvim_buf_is_valid) == "function"
       and type(private_opts.writer:get_bufnr()) == "number"
-      and vim.api.nvim_buf_is_valid(private_opts.writer:get_bufnr())
   then
     return private_opts.writer:get_bufnr()
   end
@@ -295,30 +307,32 @@ function SpurDapJob:run()
   if not private_opts then
     error("SpurJob instance is not properly initialized")
   end
-  local existing_buf = self:get_bufnr()
-  local winids = vim.api.nvim_list_wins()
+  vim.schedule(function()
+    local existing_buf = self:get_bufnr()
+    local winids = vim.api.nvim_list_wins()
 
-  self:__start_job()
+    self:__start_job()
 
-  pcall(function()
-    local config = require "spur.config"
-    for _, winid in ipairs(winids) do
-      local buf = vim.api.nvim_win_get_buf(winid)
-      if buf == existing_buf
-          or (vim.bo[buf].filetype == config.filetype
-            and vim.bo[buf].buftype == "prompt")
-      then
-        pcall(function()
-          vim.api.nvim_win_close(winid, true)
-        end)
+    pcall(function()
+      local config = require "spur.config"
+      for _, winid in ipairs(winids) do
+        local buf = vim.api.nvim_win_get_buf(winid)
+        if buf == existing_buf
+            or (vim.bo[buf].filetype == config.filetype
+              and vim.bo[buf].buftype == "prompt")
+        then
+          pcall(function()
+            vim.api.nvim_win_close(winid, true)
+          end)
+        end
       end
-    end
-  end)
-  pcall(function()
-    if existing_buf ~= nil and vim.api.nvim_buf_is_valid(existing_buf) then
-      -- If the job was already running, we need to clean up the old buffer.
-      vim.api.nvim_buf_delete(existing_buf, { force = true })
-    end
+    end)
+    pcall(function()
+      if existing_buf ~= nil and vim.api.nvim_buf_is_valid(existing_buf) then
+        -- If the job was already running, we need to clean up the old buffer.
+        vim.api.nvim_buf_delete(existing_buf, { force = true })
+      end
+    end)
   end)
 end
 
@@ -530,69 +544,75 @@ function SpurDapJob:__start_job()
     dap.listeners.before.event_stopped = {}
   end
   dap.listeners.after.event_output[key] = function(session, output)
-    if type(output) ~= "table"
-        or type(session) ~= "table"
-        or type(private_opts.session) ~= "table"
-        or type(output.output) ~= "string"
-        or session.id ~= private_opts.session.id
-        or type(output.category) ~= "string" or output.category == "console" then
-      return
-    end
-    if writer ~= nil then
-      writer:write({ message = output.output })
-    end
-  end
-  dap.listeners.before.event_stopped[key] = function(session, o)
-    if type(session) ~= "table"
-        or type(private_opts.session) ~= "table"
-        or session.id ~= private_opts.session.id
-        or type(o) ~= "table" or o.reason ~= "breakpoint" then
-      return
-    end
-    -- NOTE: Before breakpoint we try to close
-    -- any existing windows for this plugin, so
-    -- we dont jump to breakpoints in our floats.
-    if type(o) == "table" and o.reason == "breakpoint" then
-      pcall(function()
-        local win_ids = vim.api.nvim_list_wins()
-        for _, win_id in ipairs(win_ids) do
-          local buf = vim.api.nvim_win_get_buf(win_id)
-          if bufnr == buf
-              or vim.bo[buf].filetype == config.filetype
-              and vim.bo[buf].buftype == "prompt"
-          then
-            vim.api.nvim_win_close(win_id, true)
-            break
-          end
-        end
-      end)
-    end
-  end
-  dap.listeners.after.event_stopped[key] = function(session, o)
-    pcall(function()
-      if type(session) ~= "table"
+    vim.schedule(function()
+      if type(output) ~= "table"
+          or type(session) ~= "table"
           or type(private_opts.session) ~= "table"
-          or session.id ~= private_opts.session.id then
+          or type(output.output) ~= "string"
+          or session.id ~= private_opts.session.id
+          or type(output.category) ~= "string" or output.category == "console" then
         return
       end
-      local msg = "Stopped"
-      if type(o) == "table"
-          and type(o.reason) == "string"
-          and o.reason ~= "" then
-        if o.reason == "pause"
-            and type(killed) == "table"
-            and type(self.get_id) == "function"
-            and type(self:get_id()) == "number"
-            and killed[self:get_id()] == true
-        then
+      if writer ~= nil then
+        writer:write({ message = output.output })
+      end
+    end)
+  end
+  dap.listeners.before.event_stopped[key] = function(session, o)
+    vim.schedule(function()
+      if type(session) ~= "table"
+          or type(private_opts.session) ~= "table"
+          or session.id ~= private_opts.session.id
+          or type(o) ~= "table" or o.reason ~= "breakpoint" then
+        return
+      end
+      -- NOTE: Before breakpoint we try to close
+      -- any existing windows for this plugin, so
+      -- we dont jump to breakpoints in our floats.
+      if type(o) == "table" and o.reason == "breakpoint" then
+        pcall(function()
+          local win_ids = vim.api.nvim_list_wins()
+          for _, win_id in ipairs(win_ids) do
+            local buf = vim.api.nvim_win_get_buf(win_id)
+            if bufnr == buf
+                or vim.bo[buf].filetype == config.filetype
+                and vim.bo[buf].buftype == "prompt"
+            then
+              vim.api.nvim_win_close(win_id, true)
+              break
+            end
+          end
+        end)
+      end
+    end)
+  end
+  dap.listeners.after.event_stopped[key] = function(session, o)
+    vim.schedule(function()
+      pcall(function()
+        if type(session) ~= "table"
+            or type(private_opts.session) ~= "table"
+            or session.id ~= private_opts.session.id then
           return
         end
+        local msg = "Stopped"
+        if type(o) == "table"
+            and type(o.reason) == "string"
+            and o.reason ~= "" then
+          if o.reason == "pause"
+              and type(killed) == "table"
+              and type(self.get_id) == "function"
+              and type(self:get_id()) == "number"
+              and killed[self:get_id()] == true
+          then
+            return
+          end
 
-        msg = msg .. " - " .. o.reason
-      end
-      if writer ~= nil then
-        writer:write({ message = "\n" .. config.prefix .. msg .. "\n\n", hl = config.hl.debug })
-      end
+          msg = msg .. " - " .. o.reason
+        end
+        if writer ~= nil then
+          writer:write({ message = "\n" .. config.prefix .. msg .. "\n\n", hl = config.hl.debug })
+        end
+      end)
     end)
   end
   self:__on_start()
@@ -600,51 +620,53 @@ function SpurDapJob:__start_job()
 end
 
 function SpurDapJob:__on_exit(opts)
-  local config = require "spur.config"
-  local writer = self:__get_writer()
+  vim.schedule(function()
+    local config = require "spur.config"
+    local writer = self:__get_writer()
 
-  if writer ~= nil then
-    writer:write_remainder()
+    if writer ~= nil then
+      writer:write_remainder()
 
-    if type(opts.exit_code) == "number" then
-      local hl = opts.exit_code == 0 and config.hl.info or config.hl.warn
-      writer:write({
-        message = "\n" .. config.prefix .. "Exited with code " .. opts.exit_code .. "\n",
-        hl = hl
-      })
-    elseif opts.killed == true then
-      writer:write({ message = "\n" .. config.prefix .. "Killed\n", hl = config.hl.warn })
-    else
-      writer:write({ message = "\n" .. config.prefix .. "Exited\n", hl = config.hl.info })
+      if type(opts.exit_code) == "number" then
+        local hl = opts.exit_code == 0 and config.hl.info or config.hl.warn
+        writer:write({
+          message = "\n" .. config.prefix .. "Exited with code " .. opts.exit_code .. "\n",
+          hl = hl
+        })
+      elseif opts.killed == true then
+        writer:write({ message = "\n" .. config.prefix .. "Killed\n", hl = config.hl.warn })
+      else
+        writer:write({ message = "\n" .. config.prefix .. "Exited\n", hl = config.hl.info })
+      end
     end
-  end
-  SpurJob.__on_exit(self, opts)
-  local bufnr = self:get_bufnr()
-  if type(bufnr) == "number"
-      and vim.api.nvim_buf_is_valid(bufnr) then
-    pcall(function()
-      vim.bo[bufnr].buftype = "prompt"
-    end)
+    SpurJob.__on_exit(self, opts)
+    local bufnr = self:get_bufnr()
+    if type(bufnr) == "number"
+        and vim.api.nvim_buf_is_valid(bufnr) then
+      pcall(function()
+        vim.bo[bufnr].buftype = "prompt"
+      end)
 
-    vim.api.nvim_create_autocmd({ "InsertEnter" }, {
-      buffer = bufnr,
-      group = vim.api.nvim_create_augroup("SpurJobAugroup_Exit", { clear = false }),
-      callback = function()
-        vim.schedule(function()
+      vim.api.nvim_create_autocmd({ "InsertEnter" }, {
+        buffer = bufnr,
+        group = vim.api.nvim_create_augroup("SpurJobAugroup_Exit", { clear = false }),
+        callback = function()
+          vim.schedule(function()
+            pcall(function()
+              vim.cmd("stopinsert")
+            end)
+          end)
+        end,
+      })
+      pcall(function()
+        vim.api.nvim_buf_call(bufnr, function()
           pcall(function()
             vim.cmd("stopinsert")
           end)
         end)
-      end,
-    })
-    pcall(function()
-      vim.api.nvim_buf_call(bufnr, function()
-        pcall(function()
-          vim.cmd("stopinsert")
-        end)
       end)
-    end)
-  end
+    end
+  end)
 end
 
 return SpurDapJob

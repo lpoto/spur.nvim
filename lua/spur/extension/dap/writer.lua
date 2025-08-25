@@ -502,6 +502,19 @@ function create_job_buffer(job, on_input)
   vim.fn.prompt_setinterrupt(bufnr, function()
     job:kill()
   end)
+  local group = vim.api.nvim_create_augroup("SpurDapJobAugroup_writer_kill", {})
+  vim.api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
+    buffer = bufnr,
+    group = group,
+    once = true,
+    callback = function()
+      vim.schedule(function()
+        pcall(function()
+          job:clean()
+        end)
+      end)
+    end,
+  })
   return bufnr
 end
 

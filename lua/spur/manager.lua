@@ -106,8 +106,10 @@ function M.quick_run(cmd)
   })
   M.add_job(job)
   job:run()
-  local handler = M.__find_handler(job)
-  handler:open_job_output(job)
+  vim.schedule(function()
+    local handler = M.__find_handler(job)
+    handler:open_job_output(job)
+  end)
 end
 
 local job_is_available

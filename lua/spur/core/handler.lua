@@ -45,7 +45,7 @@ function SpurJobHandler:close_job_output(job)
   end
   local bufnr = job:get_bufnr()
   if type(bufnr) ~= "number" or not vim.api.nvim_buf_is_valid(bufnr) then
-    error("SpurJob buffer is not available")
+    return false
   end
   local config = require "spur.config"
   local closed = false
@@ -187,7 +187,11 @@ function SpurJobHandler:__set_output_window_options(win_id, job)
         pcall(function()
           vim.api.nvim_win_close(win_id, true)
         end)
-        self:close_job_output(job)
+        vim.schedule(function()
+          pcall(function()
+            self:close_job_output(job)
+          end)
+        end)
         pcall(function()
           vim.api.nvim_del_autocmd(id)
         end)
@@ -211,23 +215,31 @@ function SpurJobHandler:__set_output_window_mappings(job)
   end
   for _, key in ipairs({ "<C-c>", "<C-\\>" }) do
     vim.keymap.set({ "n", "i", "t" }, key, function()
-      job:kill()
+      vim.schedule(function()
+        job:kill()
+      end)
     end, { buffer = job:get_bufnr(), desc = "Stop a running job" })
   end
   for _, key in ipairs({ "q", "<Esc>" }) do
     vim.keymap.set("n", key, function()
-      self:close_job_output(job)
+      vim.schedule(function()
+        self:close_job_output(job)
+      end)
     end, { buffer = job:get_bufnr(), desc = "Close job output window" })
   end
   for _, key in ipairs({ "Q", "<C-q>" }) do
     vim.keymap.set("n", key, function()
-      job:clean()
+      vim.schedule(function()
+        job:clean()
+      end)
     end, { buffer = job:get_bufnr(), desc = "Clean job output" })
   end
   for _, key in ipairs({ "<C-a>" }) do
     vim.keymap.set({ "n", "i" }, key, function()
-      local manager = require "spur.manager"
-      manager.select_job_action(job)
+      vim.schedule(function()
+        local manager = require "spur.manager"
+        manager.select_job_action(job)
+      end)
     end, { buffer = job:get_bufnr(), desc = "Select job action" })
   end
 end
@@ -271,18 +283,28 @@ function SpurJobHandler:__execute_job_action(job, action)
     return false
   end
   if action.value == "run" then
-    job:run()
-    if job:is_running() and not job:is_quiet() then
-      self:open_job_output(job)
-    end
+    vim.schedule(function()
+      job:run()
+      vim.schedule(function()
+        if job:is_running() and not job:is_quiet() then
+          self:open_job_output(job)
+        end
+      end)
+    end)
   elseif action.value == "kill" then
-    job:kill()
+    vim.schedule(function()
+      job:kill()
+    end)
   elseif action.value == "output" then
-    if not job:is_quiet() then
-      self:open_job_output(job)
-    end
+    vim.schedule(function()
+      if not job:is_quiet() then
+        self:open_job_output(job)
+      end
+    end)
   elseif action.value == "clean" then
-    job:clean()
+    vim.schedule(function()
+      job:clean()
+    end)
   else
     return false
   end
