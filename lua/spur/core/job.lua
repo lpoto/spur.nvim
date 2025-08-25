@@ -19,6 +19,8 @@ SpurJob.__type = "SpurJob"
 ---@field cmd string
 ---@field name string
 ---@field working_dir string|nil
+---@field clear_env boolean|nil
+---@field env table<string, string>|nil
 
 local private = setmetatable({}, { __mode = "k" })
 local id_counter = 0
@@ -47,6 +49,26 @@ function SpurJob:new(opts)
   end
   if jobdata.working_dir ~= nil and type(jobdata.working_dir) ~= "string" then
     error("SpurJob:new expects 'job.working_dir' to be a string if provided")
+  end
+  if jobdata.clear_env ~= nil and type(jobdata.clear_env) ~= "boolean" then
+    error("SpurJob:new expects 'job.clear_env' to be a boolean if provided")
+  end
+  jobdata.clear_env = jobdata.clear_env == true
+  if jobdata.env ~= nil then
+    if type(jobdata.env) ~= "table" then
+      error("SpurJob:new expects 'job.env' to be a table if provided")
+    end
+    local len = 0
+    for k, v in pairs(jobdata.env) do
+      if type(k) ~= "string" or (type(v) ~= "string" and type(v) ~= "number" and type(v) ~= "boolean") then
+        error(
+          "SpurJob:new expects 'job.env' to be a table of string keys and string, number or boolean values")
+      end
+      len = len + 1
+    end
+    if len == 0 then
+      jobdata.env = nil
+    end
   end
   if opts.on_exit ~= nil and type(opts.on_exit) ~= "function" then
     error("SpurJob:new expects 'on_exit' to be a function if provided")
@@ -378,6 +400,8 @@ function start_job(job, bufnr)
       {
         term = term,
         cwd = working_dir,
+        clear_env = job.job.clear_env,
+        env = job.job.env,
         detach = false,
         on_exit = function(_, code, msg)
           private_opts.job_id = nil
