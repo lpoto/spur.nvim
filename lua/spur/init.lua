@@ -67,7 +67,7 @@ function M.select_output()
     end,
     function(job)
       if job ~= nil then
-        manager.__find_handler(job):open_job_output(job)
+        manager.__find_handler(job, "open_job_output"):open_job_output(job)
       end
     end,
     true

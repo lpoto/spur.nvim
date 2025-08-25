@@ -9,9 +9,15 @@ function SpurJobHandler:new()
 end
 
 --- @param o SpurJob or input table for a SpurJob
+--- @param action string What action the job should be accepted for
 --- @return boolean Whether the job handler accepts the provided job
-function SpurJobHandler:accepts_job(o)
+function SpurJobHandler:accepts_job(o, action)
+  -- NOTE: The default handler should accept all
+  -- jobs at it will have the lowest priority.
+  -- It should also accept all actions.
   return type(o) == "table"
+      and type(action) == "string"
+      and action ~= ""
 end
 
 ---@param o table Input fields for SpurJob
@@ -187,10 +193,8 @@ function SpurJobHandler:__set_output_window_options(win_id, job)
         pcall(function()
           vim.api.nvim_win_close(win_id, true)
         end)
-        vim.schedule(function()
-          pcall(function()
-            self:close_job_output(job)
-          end)
+        pcall(function()
+          self:close_job_output(job)
         end)
         pcall(function()
           vim.api.nvim_del_autocmd(id)

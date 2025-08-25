@@ -56,7 +56,7 @@ function M.add_job(job)
     jobs[job:get_id()] = job
     return
   end
-  local handler = M.__find_handler(job)
+  local handler = M.__find_handler(job, "create_job")
   local new_job = handler:create_job(job)
   if type(new_job) ~= "table"
       or type(new_job.get_id) ~= "function"
@@ -107,7 +107,7 @@ function M.quick_run(cmd)
   M.add_job(job)
   job:run()
   vim.schedule(function()
-    local handler = M.__find_handler(job)
+    local handler = M.__find_handler(job, "open_job_output")
     handler:open_job_output(job)
   end)
 end
@@ -146,7 +146,7 @@ function M.select_job(filter, on_select, skip_selection_if_one_result)
   end
   local filtered_jobs = {}
   for _, job in ipairs(vim.tbl_values(M.get_jobs())) do
-    local handler = M.__find_handler(job)
+    local handler = M.__find_handler(job, "__get_job_actions")
     if #handler:__get_job_actions(job) > 0 then
       if type(filter) ~= "function" then
         table.insert(filtered_jobs, job)
@@ -232,19 +232,21 @@ end
 --- Find a handler for the job.
 ---
 --- @param job SpurJob|table
-function M.__find_handler(job)
+--- @param action string
+function M.__find_handler(job, action)
   if type(job) ~= "table" then
     error("Invalid job data provided")
   end
+  action = action or ""
   --- iterate handlers in reverse order,
   --- so latest ones added have priority
   for i = #handlers, 1, -1 do
     local handler = handlers[i]
-    if handler:accepts_job(job) then
+    if handler:accepts_job(job, action) then
       return handler
     end
   end
-  error("No handler found for the provided job")
+  error("No handler found for action '" .. action .. "' for the provided job")
 end
 
 --- Select one of the supported actions for the provided job.
@@ -259,7 +261,7 @@ function M.select_job_action(job)
       or type(job.get_bufnr) ~= "function" then
     error("Invalid job object provided")
   end
-  local handler = M.__find_handler(job)
+  local handler = M.__find_handler(job, "__get_job_actions")
   local actions = handler:__get_job_actions(job)
   if #actions == 0 then
     local title = require "spur.config".title

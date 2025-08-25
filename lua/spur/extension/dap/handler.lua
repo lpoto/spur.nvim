@@ -16,12 +16,18 @@ end
 --- Check whether this handler accepts the job
 ---
 --- @param opts table Input fields for SpurJob
+--- @param action string What action the job should be accepted for
 --- @return boolean
-function SpurJobDapHandler:accepts_job(opts)
+function SpurJobDapHandler:accepts_job(opts, action)
   if type(opts) ~= "table" then
     return false
   end
   if type(opts.dap) ~= "table" then
+    return false
+  end
+  -- NOTE: This handler overrides all actions
+  -- of the default handler, so we accept all actions.
+  if type(action) ~= "string" or action == "" then
     return false
   end
   if type(opts.job) == "table" then
