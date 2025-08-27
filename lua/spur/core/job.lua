@@ -387,6 +387,31 @@ function SpurJob:__on_start()
   end)
 end
 
+---@return boolean
+function SpurJob:__is_available()
+  if self.__type ~= "SpurJob" then
+    return false
+  end
+  if type(self.condition) ~= "table" then
+    return true
+  end
+  if type(self.condition.dir) ~= "string" then
+    return true
+  end
+  local dir = vim.fn.expand(self.condition.dir)
+  dir = string.sub(dir, -1) == "/" and dir or dir .. "/"
+  local current_dir = vim.fn.getcwd()
+  current_dir = string.sub(current_dir, -1) == "/" and current_dir or current_dir .. "/"
+
+  local support_subdirs = self.condition.show_in_subdirs == nil
+      or self.condition.show_in_subdirs == true
+  if not support_subdirs then
+    return dir == current_dir
+  end
+  return string.sub(current_dir, 1, #dir) == dir
+      or string.sub(current_dir, 1, #dir + 1) == dir .. "/"
+end
+
 ---@param job SpurJob
 ---@param bufnr number|nil
 function start_job(job, bufnr)

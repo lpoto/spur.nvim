@@ -116,8 +116,12 @@ function SpurJobHandler:open_job_output(job)
   return true
 end
 
-function SpurJobHandler:__open_float(job, bufnr)
-  local win_opts = self.__get_win_opts("[output] " .. job:get_name())
+function SpurJobHandler:__open_float(job, bufnr, name)
+  if type(name) ~= "string" or name == "" then
+    name = "[output] " .. job:get_name()
+  end
+
+  local win_opts = self.__get_win_opts(name)
 
   local win_id = vim.api.nvim_open_win(bufnr, true, win_opts)
   self:__set_output_window_options(win_id, job)

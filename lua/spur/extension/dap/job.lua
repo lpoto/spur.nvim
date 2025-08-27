@@ -19,6 +19,9 @@ local private = setmetatable({}, { __mode = "k" })
 ---@param opts table
 ---@return SpurDapJob
 function SpurDapJob:new(opts)
+  if type(opts) ~= "table" then
+    opts = {}
+  end
   if opts.dap == nil or type(opts.dap) ~= "table" then
     error("SpurDapJob:new expects 'dap' to be a table in options")
   end
@@ -667,6 +670,14 @@ function SpurDapJob:__on_exit(opts)
       end)
     end
   end)
+end
+
+function SpurDapJob:__is_available()
+  if not SpurJob.__is_available(self) then
+    return false
+  end
+  local ok, _ = pcall(require, "dap")
+  return ok
 end
 
 return SpurDapJob

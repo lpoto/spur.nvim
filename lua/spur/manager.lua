@@ -317,24 +317,10 @@ function job_is_available(job)
   if type(job) ~= "table" or job.__type ~= "SpurJob" then
     return false
   end
-  if type(job.condition) ~= "table" then
-    return true
+  if type(job.__is_available) ~= "function" then
+    return false
   end
-  if type(job.condition.dir) ~= "string" then
-    return true
-  end
-  local dir = vim.fn.expand(job.condition.dir)
-  dir = string.sub(dir, -1) == "/" and dir or dir .. "/"
-  local current_dir = vim.fn.getcwd()
-  current_dir = string.sub(current_dir, -1) == "/" and current_dir or current_dir .. "/"
-
-  local support_subdirs = job.condition.show_in_subdirs == nil
-      or job.condition.show_in_subdirs == true
-  if not support_subdirs then
-    return dir == current_dir
-  end
-  return string.sub(current_dir, 1, #dir) == dir
-      or string.sub(current_dir, 1, #dir + 1) == dir .. "/"
+  return job:__is_available()
 end
 
 return M
