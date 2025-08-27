@@ -12,7 +12,7 @@ SpurDbeeJob.__type = "SpurJob"
 SpurDbeeJob.__subtype = "SpurDbeeJob"
 SpurDbeeJob.__metatable = SpurDbeeJob
 
-local g_writer = nil
+local g_result = nil
 
 --- Create a new SpurDbeeJob instance.
 ---
@@ -35,10 +35,10 @@ end
 ---
 ---@return boolean
 function SpurDbeeJob:is_running()
-  if g_writer == nil then
+  if g_result == nil then
     return false
   end
-  if g_writer:is_exited() then
+  if g_result:is_exited() then
     return false
   end
   local call = self:__get_call()
@@ -84,28 +84,28 @@ function SpurDbeeJob:kill()
 end
 
 function SpurDbeeJob:__get_call()
-  local writer = self:__get_writer()
-  if type(writer) ~= "table"
-      or type(writer.get_call) ~= "function"
-      or writer:get_call() == nil
-      or not writer:get_call().id then
+  local result = self:__get_result()
+  if type(result) ~= "table"
+      or type(result.get_call) ~= "function"
+      or result:get_call() == nil
+      or not result:get_call().id then
     return nil
   end
-  return writer:get_call()
+  return result:get_call()
 end
 
---- Kills the job if it is running and deletes the job's writer.
+--- Kills the job if it is running and deletes the job's result.
 function SpurDbeeJob:clean()
   pcall(function()
     SpurJob.clean(self)
   end)
   vim.schedule(function()
     pcall(function()
-      if g_writer ~= nil then
-        g_writer:clean()
+      if g_result ~= nil then
+        g_result:clean()
       end
     end)
-    g_writer = nil
+    g_result = nil
   end)
 end
 
@@ -115,11 +115,11 @@ end
 ---
 --- @return number|nil
 function SpurDbeeJob:get_bufnr()
-  local writer = self:__get_writer()
-  if type(writer) == "table"
-      and type(writer:get_bufnr()) == "number"
+  local result = self:__get_result()
+  if type(result) == "table"
+      and type(result:get_bufnr()) == "number"
   then
-    return writer:get_bufnr()
+    return result:get_bufnr()
   end
   return nil
 end
@@ -144,10 +144,10 @@ function SpurDbeeJob:execute_query(conn, query)
     self:clean()
   end)
   vim.schedule(function()
-    g_writer = require("spur.extension.dbee.writer"):new(function(o) self:__on_exit(o) end)
+    g_result = require("spur.extension.dbee.result"):new(function(o) self:__on_exit(o) end)
     local api = require "dbee.api"
     local call = api.core.connection_execute(conn.id, query)
-    g_writer:set_call(call)
+    g_result:set_call(call)
   end)
   return true
 end
@@ -174,10 +174,10 @@ function SpurDbeeJob:__tostring()
   return string.format("SpurDbeeJob(%s)", self:get_name())
 end
 
----@return SpurDbeeWriter|nil
-function SpurDbeeJob:__get_writer()
-  if (type(g_writer) == "table") then
-    return g_writer
+---@return SpurDbeeResult|nil
+function SpurDbeeJob:__get_result()
+  if (type(g_result) == "table") then
+    return g_result
   end
   return nil
 end

@@ -1,13 +1,13 @@
----@class SpurDbeeWriter
-local SpurDbeeWriter = {}
-SpurDbeeWriter.__index = SpurDbeeWriter
-SpurDbeeWriter.__type = "SpurDbeeWriter"
+---@class SpurDbeeResult
+local SpurDbeeResult = {}
+SpurDbeeResult.__index = SpurDbeeResult
+SpurDbeeResult.__type = "SpurDbeeResult"
 
 local result_ui = nil
 local ocsc = nil
 
 ---@param on_exit function|nil
-function SpurDbeeWriter:new(on_exit)
+function SpurDbeeResult:new(on_exit)
   if type(on_exit) ~= "function" then
     on_exit = nil
   end
@@ -15,11 +15,13 @@ function SpurDbeeWriter:new(on_exit)
     __write_delay_ms = 25,
   }, self)
 
-  local opts = {
-    buffer_options = {
-      bufhidden = "hide",
-    }
-  }
+  local opts = vim.tbl_extend("force",
+    require("dbee.config").default.result,
+    {
+      buffer_options = {
+        bufhidden = "hide",
+      }
+    })
 
   if result_ui == nil then
     local state = require("dbee.api.state")
@@ -58,22 +60,22 @@ function SpurDbeeWriter:new(on_exit)
   return instance
 end
 
-function SpurDbeeWriter:on_exit(state, callback)
+function SpurDbeeResult:on_exit(state, callback)
   self.__exited = true
   if type(callback) == "function" then
     pcall(callback, state)
   end
 end
 
-function SpurDbeeWriter:is_exited()
+function SpurDbeeResult:is_exited()
   return self.__exited == true
 end
 
-function SpurDbeeWriter:is_cleaned()
+function SpurDbeeResult:is_cleaned()
   return self.__cleaned == true
 end
 
-function SpurDbeeWriter:set_call(call)
+function SpurDbeeResult:set_call(call)
   if result_ui ~= nil then
     if type(call) == "table" then
       local cur_call = result_ui.current_call
@@ -90,7 +92,7 @@ function SpurDbeeWriter:set_call(call)
 end
 
 ---@return number|nil
-function SpurDbeeWriter:get_bufnr()
+function SpurDbeeResult:get_bufnr()
   if result_ui == nil then
     return nil
   end
@@ -104,14 +106,14 @@ function SpurDbeeWriter:get_bufnr()
 end
 
 ---@return table|nil
-function SpurDbeeWriter:get_call()
+function SpurDbeeResult:get_call()
   if type(result_ui) ~= "table" then
     return nil
   end
   return result_ui.current_call
 end
 
-function SpurDbeeWriter:clean()
+function SpurDbeeResult:clean()
   self.__cleaned = true
   pcall(function()
     if result_ui ~= nil then
@@ -126,11 +128,11 @@ function SpurDbeeWriter:clean()
   end)
 end
 
-function SpurDbeeWriter:get_ui()
+function SpurDbeeResult:get_ui()
   if self.__cleaned or type(result_ui) ~= "table" then
     return nil
   end
   return result_ui
 end
 
-return SpurDbeeWriter
+return SpurDbeeResult

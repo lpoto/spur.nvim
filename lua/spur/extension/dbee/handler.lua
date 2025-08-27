@@ -81,7 +81,21 @@ function SpurJobDbeeHandler:__get_job_actions(job)
         end
       end
     end
+    pcall(function()
+      local cur_conn = api.core.get_current_connection()
+      table.sort(actions, function(a, b)
+        if cur_conn then
+          if a.value.id == cur_conn.id then
+            return true
+          elseif b.value.id == cur_conn.id then
+            return false
+          end
+        end
+        return a.label < b.label
+      end)
+    end)
   end)
+
   local existing = SpurJobHandler.__get_job_actions(self, job)
   if type(existing) == "table" then
     for _, action in ipairs(existing) do
@@ -93,6 +107,8 @@ function SpurJobDbeeHandler:__get_job_actions(job)
   end
   return actions
 end
+
+local close_query_and_output
 
 function SpurJobDbeeHandler:__select_connection(job)
   local actions = self:__get_job_actions(job)
@@ -106,7 +122,11 @@ function SpurJobDbeeHandler:__select_connection(job)
     end
     if type(choice.value) == "table" and choice.value.id then
       local api = require "dbee.api"
+      local cur_conn = api.core.get_current_connection()
       api.core.set_current_connection(choice.value.id)
+      if cur_conn == nil or cur_conn.id ~= choice.value.id then
+        close_query_and_output()
+      end
       self:__select_database(job, choice.value)
     end
   end)
@@ -123,7 +143,11 @@ function SpurJobDbeeHandler:__execute_job_action(job, action)
   end
   if type(action.value) == "table" and action.value.id then
     local api = require "dbee.api"
+    local cur_conn = api.core.get_current_connection()
     api.core.set_current_connection(action.value.id)
+    if cur_conn == nil or cur_conn.id ~= action.value.id then
+      close_query_and_output()
+    end
     self:__select_database(job, action.value)
     return
   end
@@ -155,14 +179,14 @@ function SpurJobDbeeHandler:__select_database(job, conn)
   end
 
   table.insert(options, { name = "[Query]", value = "_query" })
-  table.insert(options, { name = "[Change Connection]", value = "_change_conn" })
+  table.insert(options, { name = "[Back]", value = "_back" })
 
   vim.ui.select(options, {
     prompt = "[" .. conn.name .. "]",
     format_item = function(item) return item.name end,
   }, function(choice)
     if type(choice) ~= "table" or not choice.value or choice.value == "" then return end
-    if choice.value == "_change_conn" then
+    if choice.value == "_back" then
       return self:__select_connection(job)
     end
     if type(choice.value) ~= "string" then
@@ -203,14 +227,16 @@ function SpurJobDbeeHandler:__select_action(job, conn, database, multiple_dbs, a
       table.insert(options, { name = name, value = tbl })
     end
   end
-  table.sort(options, function(a, b)
-    if a.name == "postgres" or a.name == "mysql" then
-      return false
-    end
-    if b.name == "postgres" or b.name == "mysql" then
-      return true
-    end
-    return a.name < b.name
+  pcall(function()
+    table.sort(options, function(a, b)
+      if a.name == "postgres" or a.name == "mysql" then
+        return false
+      end
+      if b.name == "postgres" or b.name == "mysql" then
+        return true
+      end
+      return a.name < b.name
+    end)
   end)
 
   if allow_query_in_tbl_sel == true or is_db_selection then
@@ -220,10 +246,7 @@ function SpurJobDbeeHandler:__select_action(job, conn, database, multiple_dbs, a
   if multiple_dbs == true then
     table.insert(options, { name = "[Change Database]", value = "_change_db" })
   end
-  if is_db_selection then
-    table.insert(options,
-      { name = "[Change Connection]", value = "_change_conn" })
-  end
+  table.insert(options, { name = "[Back]", value = "_back" })
 
   local name = database
   if is_db_selection then
@@ -237,12 +260,16 @@ function SpurJobDbeeHandler:__select_action(job, conn, database, multiple_dbs, a
     format_item = function(item) return item.name end,
   }, function(choice)
     if type(choice) ~= "table" or not choice.value or choice.value == "" then return end
-    if choice.value == "_change_conn" then
-      return self:__select_connection(job)
-    elseif choice.value == "_change_db" then
+    if choice.value == "_change_db" then
       return self:__select_database(job, conn)
     elseif choice.value == "_query" then
       return self:__query(job, conn)
+    elseif choice.value == "_back" then
+      if is_db_selection then
+        return self:__select_connection(job)
+      else
+        return self:__select_database(job, conn)
+      end
     end
     if is_db_selection then
       return self:__select_action(job, conn, choice.name, multiple_dbs)
@@ -268,11 +295,22 @@ function SpurJobDbeeHandler:__select_table(job, conn, database, tbl)
         table.insert(options, { name = k, value = v })
       end
     end
+    pcall(function()
+      table.sort(options, function(a, b)
+        for _, w in ipairs({ "column", "list" }) do
+          if a.name:lower() == w then
+            return true
+          end
+          if b.name:lower() == w then
+            return false
+          end
+        end
+        return a.name < b.name
+      end)
+    end)
   end
-  if #options == 0 then
-    vim.notify("No actions available for table " .. tbl.name)
-    return
-  end
+  table.insert(options, { name = "[Back]", value = "_back" })
+
   local table_name = tbl.name
   if type(database) == "string" and database ~= "" then
     table_name = database .. "." .. table_name
@@ -282,6 +320,9 @@ function SpurJobDbeeHandler:__select_table(job, conn, database, tbl)
     format_item = function(item) return item.name end,
   }, function(choice)
     if type(choice) ~= "table" or not choice.value or choice.value == "" then return end
+    if choice.value == "_back" then
+      return self:__select_action(job, conn, database, true)
+    end
     return self:__execute_query(job, conn, choice.value)
   end)
 end
@@ -372,12 +413,12 @@ function SpurJobDbeeHandler:__add_connection(job)
 end
 
 ---@param job SpurDbeeJob
-function SpurJobDbeeHandler:open_job_output(job)
-  local writer = job:__get_writer()
-  if type(writer) ~= "table" or type(writer.get_ui) ~= "function" then
+function SpurJobDbeeHandler:open_job_output(job, conn)
+  local result = job:__get_result()
+  if type(result) ~= "table" or type(result.get_ui) ~= "function" then
     return false
   end
-  local result_ui = writer:get_ui()
+  local result_ui = result:get_ui()
   if type(result_ui) ~= "table" then
     return false
   end
@@ -395,6 +436,21 @@ function SpurJobDbeeHandler:open_job_output(job)
     winid = self:__open_float(job, result_ui.bufnr)
   end
   result_ui:show(winid)
+  pcall(function()
+    if not conn then
+      conn = require("dbee.api").core.get_current_connection()
+    end
+    if conn then
+      local buf = result_ui.bufnr
+      for _, k in ipairs({ "<C-b>" }) do
+        vim.keymap.set({ "v", "n", "i" }, k, function()
+          vim.schedule(function()
+            self:__select_database(job, conn)
+          end)
+        end, { buffer = buf, desc = "Open database selection" })
+      end
+    end
+  end)
   return true
 end
 
@@ -423,7 +479,7 @@ end
 function SpurJobDbeeHandler:__execute_query(job, conn, query, from_query_editor)
   if job:execute_query(conn, query) then
     vim.schedule(function()
-      self:open_job_output(job)
+      self:open_job_output(job, conn)
       vim.schedule(function()
         local buf = vim.api.nvim_get_current_buf()
         if not vim.api.nvim_buf_is_valid(buf) then
@@ -433,7 +489,7 @@ function SpurJobDbeeHandler:__execute_query(job, conn, query, from_query_editor)
         if not filetype:gmatch("dbee") then
           return
         end
-        for _, k in ipairs({ "C-O", "<S-Tab>", "C-I", "<Tab>" }) do
+        for _, k in ipairs({ "<C-O>", "<S-Tab>", "<C-I>", "<Tab>" }) do
           vim.keymap.set({ "i", "n" }, k, function()
             if from_query_editor == true then
               self:__query(job, conn, true)
@@ -456,6 +512,9 @@ function SpurJobDbeeHandler:__query(job, conn, from_result)
   if not vim.api.nvim_buf_is_valid(buf) then
     return
   end
+
+  close_query_and_output()
+
   vim.bo[buf].filetype = "sql"
   vim.bo[buf].buftype = ""
   vim.bo[buf].bufhidden = "wipe"
@@ -466,42 +525,96 @@ function SpurJobDbeeHandler:__query(job, conn, from_result)
 
   local cursor = nil
 
+  local url = (conn.url or "unknown")
+  local len = math.min(math.max(#url + 10, 15), 100)
+
+  pcall(function()
+    -- if first line does not start with connection,
+    -- write connection metadata at the top
+    -- write comments with connection metadata
+    local first_line = vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] or ""
+    if not first_line:match("^%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-") then
+      local comments = {
+        string.rep("-", len + 2),
+        "-- Type: " .. (conn.type or "unknown"),
+        "-- Connection: " .. conn.name,
+        "-- Url: " .. url,
+      }
+      pcall(function()
+        local api = require "dbee.api"
+        local cur_db = api.core.get_current_database()
+        if type(cur_db) == "string" and cur_db ~= "" then
+          table.insert(comments, "-- Database: " .. cur_db)
+        end
+      end)
+      table.insert(comments, string.rep("-", len + 2))
+      table.insert(comments, "")
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, comments)
+    end
+  end)
+  local added_from_file = false
   -- set file contents if file exists
   pcall(function()
     if vim.fn.filereadable(path) == 1 then
       local lines = vim.fn.readfile(path)
+      local line_count = vim.api.nvim_buf_line_count(buf)
       if type(lines) == "table" and #lines > 0 then
-        vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+        vim.api.nvim_buf_set_lines(buf, line_count + 1, -1, false, lines)
+        added_from_file = true
       end
     end
-    -- place cursor at the end of the file at the end
-    -- of the line
+  end)
+  if not added_from_file then
+    local line_count = vim.api.nvim_buf_line_count(buf)
+    vim.api.nvim_buf_set_lines(buf, line_count + 1, -1, false, { "" })
+  end
+  pcall(function()
+    -- place cursor at the end of the file at the end of the line
     local line_count = vim.api.nvim_buf_line_count(buf)
     local last_line = vim.api.nvim_buf_get_lines(buf, line_count - 1, line_count, false)[1]
     local col = #last_line
     cursor = { line_count, col }
   end)
 
+  local write_file_contents = function()
+    pcall(function()
+      local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+      local new_lines = {}
+      local ignoring = true
+      for _, line in ipairs(lines) do
+        if not ignoring
+            or line ~= ""
+            and not line:match("^%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-")
+            and not line:match("^%-%- Type: ")
+            and not line:match("^%-%- Url: ")
+            and not line:match("^%-%- Connection: ")
+            and not line:match("^%-%- Database: ")
+        then
+          table.insert(new_lines, line)
+          ignoring = false
+        end
+      end
+      vim.schedule(function()
+        pcall(function()
+          local file = io.open(path, "w+")
+          if file ~= nil then
+            file:write(table.concat(new_lines, "\n"))
+            file:close()
+          end
+        end)
+      end)
+      vim.bo[buf].modified = false
+    end)
+  end
+
   -- on insert leave write the file
   local group = vim.api.nvim_create_augroup("SpurDbeeQuery", { clear = true })
-  vim.api.nvim_create_autocmd("InsertLeave", {
+  vim.api.nvim_create_autocmd({ "InsertLeave", "BufUnload" }, {
     group = group,
     buffer = buf,
     once = false,
     callback = function()
-      pcall(function()
-        local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-        vim.schedule(function()
-          pcall(function()
-            local file = io.open(path, "w+")
-            if file ~= nil then
-              file:write(table.concat(lines, "\n"))
-              file:close()
-            end
-          end)
-        end)
-        vim.bo[buf].modified = false
-      end)
+      write_file_contents()
     end,
   })
   vim.bo[buf].modified = false
@@ -544,7 +657,7 @@ function SpurJobDbeeHandler:__query(job, conn, from_result)
       vim.schedule(close)
     end,
   })
-  for _, key in ipairs({ "q", "<Esc>", "Q", "<C-q>" }) do
+  for _, key in ipairs({ "q", "Q", "<C-q>" }) do
     vim.keymap.set("n", key, function()
       vim.schedule(function() close(true) end)
     end, { buffer = buf, desc = "Close query window" })
@@ -563,12 +676,46 @@ function SpurJobDbeeHandler:__query(job, conn, from_result)
       self:__execute_query(job, conn, query, true)
     end, { buffer = buf, desc = "Execute query" })
   end
-  for _, k in ipairs({ "C-O", "<S-Tab>", "C-I", "<Tab>" }) do
+  for _, k in ipairs({ "<C-O>", "<S-Tab>", "<C-I>", "<Tab>" }) do
     vim.keymap.set({ "i", "n" }, k, function()
       if from_result == true then
-        self:open_job_output(job)
+        self:open_job_output(job, conn)
       end
     end, { buffer = buf, desc = "Return to result window" })
+  end
+  pcall(function()
+    local cn = require("dbee.api").core.get_current_connection()
+    if cn then
+      for _, k in ipairs({ "<C-b>" }) do
+        vim.keymap.set({ "v", "n", "i" }, k, function()
+          vim.schedule(function()
+            self:__select_database(job, cn)
+          end)
+        end, { buffer = buf, desc = "Open database selection" })
+      end
+    end
+  end)
+end
+
+function close_query_and_output()
+  local winids = vim.api.nvim_list_wins()
+  for _, win in ipairs(winids) do
+    pcall(function()
+      local cfg = vim.api.nvim_win_get_config(win)
+      local buf = vim.api.nvim_win_get_buf(win)
+      local buftype = vim.bo[buf].buftype
+      local filetype = vim.bo[buf].filetype
+      local name = vim.api.nvim_buf_get_name(buf)
+      if type(cfg) == "table"
+          and type(cfg.relative) == "string"
+          and (name == ""
+            and buftype == ""
+            and filetype == "sql"
+            or filetype:match("dbee")
+          ) then
+        vim.api.nvim_win_close(win, true)
+      end
+    end)
   end
 end
 
