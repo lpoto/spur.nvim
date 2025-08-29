@@ -504,6 +504,8 @@ function SpurJobDbeeHandler:__execute_query(job, conn, query, from_query_editor)
   end
 end
 
+local last_cursor = nil
+
 local visual_selection
 function SpurJobDbeeHandler:__query(job, conn, from_result)
   local buf = vim.api.nvim_create_buf(false, true)
@@ -525,12 +527,23 @@ function SpurJobDbeeHandler:__query(job, conn, from_result)
   vim.bo[buf].modifiable = true
   vim.bo[buf].readonly = false
 
-  local cursor = nil
-
   pcall(function()
     vim.api.nvim_buf_call(buf, function()
       vim.cmd("edit " .. path)
     end)
+  end)
+
+  local new_cursor = nil
+  pcall(function()
+    local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    if type(lines) == "table" and #lines > 0 then
+      local row = #lines
+      local col = #lines[row]
+      if col > 200 then
+        col = 200
+      end
+      new_cursor = { row, col }
+    end
   end)
 
   local write_file_contents = function()
@@ -546,6 +559,14 @@ function SpurJobDbeeHandler:__query(job, conn, from_result)
 
   -- on insert leave write the file
   local group = vim.api.nvim_create_augroup("SpurDbeeQuery", { clear = true })
+  vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
+    group = group,
+    buffer = buf,
+    once = false,
+    callback = function()
+      last_cursor = vim.api.nvim_win_get_cursor(0)
+    end,
+  })
   vim.api.nvim_create_autocmd({ "BufUnload" }, {
     group = group,
     buffer = buf,
@@ -590,9 +611,19 @@ function SpurJobDbeeHandler:__query(job, conn, from_result)
   local win_opts = self.__get_win_opts(title)
   win_opts.style = nil
   winid = vim.api.nvim_open_win(buf, true, win_opts)
-  if type(cursor) == "table" and #cursor == 2 then
-    vim.api.nvim_win_set_cursor(winid, cursor)
-  end
+
+  local cursor_set = false
+  pcall(function()
+    if type(last_cursor) == "table" and #last_cursor == 2 then
+      vim.api.nvim_win_set_cursor(winid, last_cursor)
+      cursor_set = true
+    end
+  end)
+  pcall(function()
+    if not cursor_set and type(new_cursor) == "table" and #new_cursor == 2 then
+      vim.api.nvim_win_set_cursor(winid, new_cursor)
+    end
+  end)
   id = vim.api.nvim_create_autocmd({ "WinLeave", "BufLeave" }, {
     group = group,
     once = false,
@@ -604,6 +635,12 @@ function SpurJobDbeeHandler:__query(job, conn, from_result)
     vim.keymap.set("n", key, function()
       vim.schedule(function() close(true) end)
     end, { buffer = buf, desc = "Close query window" })
+  end
+  for _, key in ipairs({ "<C-a>" }) do
+    vim.keymap.set({ "n", "i" }, key, function()
+      local manager = require "spur.manager"
+      manager.select_job_action(job)
+    end, { buffer = buf, desc = "Select job action" })
   end
   for _, key in ipairs({ "bb", "BB", "bB", "Bb" }) do
     vim.keymap.set("v", key, function()
