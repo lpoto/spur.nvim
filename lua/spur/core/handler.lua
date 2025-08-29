@@ -167,13 +167,10 @@ function SpurJobHandler:__set_output_window_options(win_id, job)
   vim.wo[win_id].signcolumn = "no"
   vim.wo[win_id].statusline = ""
 
-  local buf = vim.api.nvim_win_get_buf(win_id)
-
   local group = vim.api.nvim_create_augroup("SpurJobAugroup_Win", { clear = true })
   local id
   id = vim.api.nvim_create_autocmd({ "WinLeave", "BufLeave" }, {
     group = group,
-    buffer = buf,
     once = false,
     callback = function()
       local close = function()

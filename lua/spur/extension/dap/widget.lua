@@ -116,7 +116,6 @@ function SpurDapWidget:__add_widget_buf_options()
   local id
   id = vim.api.nvim_create_autocmd({ "WinLeave", "BufLeave" }, {
     group = group,
-    buffer = buf,
     once = false,
     callback = function()
       local close = function()

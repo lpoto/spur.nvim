@@ -189,6 +189,9 @@ function SpurJobDbeeHandler:__select_database(job, conn)
     if choice.value == "_back" then
       return self:__select_connection(job)
     end
+    if choice.value == "_query" then
+      return self:__query(job, conn)
+    end
     if type(choice.value) ~= "string" then
       return
     end
@@ -512,7 +515,6 @@ function SpurJobDbeeHandler:__query(job, conn, from_result)
   if not vim.api.nvim_buf_is_valid(buf) then
     return
   end
-
   close_query_and_output()
 
   vim.bo[buf].filetype = "sql"
@@ -525,91 +527,26 @@ function SpurJobDbeeHandler:__query(job, conn, from_result)
 
   local cursor = nil
 
-  local url = (conn.url or "unknown")
-  local len = math.min(math.max(#url + 10, 15), 100)
-
   pcall(function()
-    -- if first line does not start with connection,
-    -- write connection metadata at the top
-    -- write comments with connection metadata
-    local first_line = vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] or ""
-    if not first_line:match("^%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-") then
-      local comments = {
-        string.rep("-", len + 2),
-        "-- Type: " .. (conn.type or "unknown"),
-        "-- Connection: " .. conn.name,
-        "-- Url: " .. url,
-      }
-      pcall(function()
-        local api = require "dbee.api"
-        local cur_db = api.core.get_current_database()
-        if type(cur_db) == "string" and cur_db ~= "" then
-          table.insert(comments, "-- Database: " .. cur_db)
-        end
-      end)
-      table.insert(comments, string.rep("-", len + 2))
-      table.insert(comments, "")
-      vim.api.nvim_buf_set_lines(buf, 0, -1, false, comments)
-    end
-  end)
-  local added_from_file = false
-  -- set file contents if file exists
-  pcall(function()
-    if vim.fn.filereadable(path) == 1 then
-      local lines = vim.fn.readfile(path)
-      local line_count = vim.api.nvim_buf_line_count(buf)
-      if type(lines) == "table" and #lines > 0 then
-        vim.api.nvim_buf_set_lines(buf, line_count + 1, -1, false, lines)
-        added_from_file = true
-      end
-    end
-  end)
-  if not added_from_file then
-    local line_count = vim.api.nvim_buf_line_count(buf)
-    vim.api.nvim_buf_set_lines(buf, line_count + 1, -1, false, { "" })
-  end
-  pcall(function()
-    -- place cursor at the end of the file at the end of the line
-    local line_count = vim.api.nvim_buf_line_count(buf)
-    local last_line = vim.api.nvim_buf_get_lines(buf, line_count - 1, line_count, false)[1]
-    local col = #last_line
-    cursor = { line_count, col }
+    vim.api.nvim_buf_call(buf, function()
+      vim.cmd("edit " .. path)
+    end)
   end)
 
   local write_file_contents = function()
     pcall(function()
-      local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-      local new_lines = {}
-      local ignoring = true
-      for _, line in ipairs(lines) do
-        if not ignoring
-            or line ~= ""
-            and not line:match("^%-%-%-%-%-%-%-%-%-%-%-%-%-%-%-")
-            and not line:match("^%-%- Type: ")
-            and not line:match("^%-%- Url: ")
-            and not line:match("^%-%- Connection: ")
-            and not line:match("^%-%- Database: ")
-        then
-          table.insert(new_lines, line)
-          ignoring = false
-        end
-      end
-      vim.schedule(function()
+      vim.api.nvim_buf_call(buf, function()
         pcall(function()
-          local file = io.open(path, "w+")
-          if file ~= nil then
-            file:write(table.concat(new_lines, "\n"))
-            file:close()
-          end
+          vim.cmd("silent! noautocmd write")
         end)
+        vim.bo[buf].modified = false
       end)
-      vim.bo[buf].modified = false
     end)
   end
 
   -- on insert leave write the file
   local group = vim.api.nvim_create_augroup("SpurDbeeQuery", { clear = true })
-  vim.api.nvim_create_autocmd({ "InsertLeave", "BufUnload" }, {
+  vim.api.nvim_create_autocmd({ "BufUnload" }, {
     group = group,
     buffer = buf,
     once = false,
@@ -642,8 +579,15 @@ function SpurJobDbeeHandler:__query(job, conn, from_result)
     end)
     return true
   end
+  local title = "[Query] " .. conn.name
+  pcall(function()
+    local cur_database = require "dbee.api".core.connection_list_databases(conn.id)
+    if type(cur_database) == "string" and cur_database ~= "" then
+      title = title .. " (" .. cur_database .. ")"
+    end
+  end)
 
-  local win_opts = self.__get_win_opts("[Query] " .. conn.name)
+  local win_opts = self.__get_win_opts(title)
   win_opts.style = nil
   winid = vim.api.nvim_open_win(buf, true, win_opts)
   if type(cursor) == "table" and #cursor == 2 then
@@ -651,7 +595,6 @@ function SpurJobDbeeHandler:__query(job, conn, from_result)
   end
   id = vim.api.nvim_create_autocmd({ "WinLeave", "BufLeave" }, {
     group = group,
-    buffer = buf,
     once = false,
     callback = function()
       vim.schedule(close)
