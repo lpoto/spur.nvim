@@ -284,10 +284,12 @@ function SpurJob:__send_signal(name)
     return
   end
   vim.schedule(function()
-    local config = require "spur.config"
-    vim.api.nvim_chan_send(
-      private_opts.job_id,
-      "\n\n#" .. config.prefix .. "Signal - " .. name .. "\n")
+    pcall(function()
+      local config = require "spur.config"
+      vim.api.nvim_chan_send(
+        private_opts.job_id,
+        "\n\n#" .. config.prefix .. "Signal - " .. name .. "\n")
+    end)
   end)
 end
 
