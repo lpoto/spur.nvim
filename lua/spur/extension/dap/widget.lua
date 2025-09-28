@@ -159,11 +159,17 @@ function SpurDapWidget:__add_widget_buf_mappings()
     end, { buffer = buf, desc = "Close widget" })
   end
   if type(self.job) == "table" then
-    for _, key in ipairs({ "<C-a>" }) do
-      vim.keymap.set({ "n", "i" }, key, function()
-        local manager = require "spur.manager"
-        manager.select_job_action(self.job)
-      end, { buffer = buf, desc = "Select job action" })
+    local mappings = require "spur.config".get_mappings(
+      "actions",
+      { key = "<C-a>", mode = { "n", "i" } }
+    )
+    for _, mapping in ipairs(mappings) do
+      pcall(function()
+        vim.keymap.set(mapping.mode, mapping.key, function()
+          local manager = require "spur.manager"
+          manager.select_job_action(self.job)
+        end, { buffer = buf, desc = "Select job action" })
+      end)
     end
   end
 end

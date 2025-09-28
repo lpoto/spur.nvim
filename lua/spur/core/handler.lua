@@ -239,14 +239,33 @@ function SpurJobHandler:__set_output_window_mappings(job)
       end)
     end, { buffer = job:get_bufnr(), desc = "Clean job output" })
   end
-  for _, key in ipairs({ "<C-a>" }) do
-    vim.keymap.set({ "n", "i" }, key, function()
-      vim.schedule(function()
-        local manager = require "spur.manager"
-        manager.select_job_action(job)
-      end)
-    end, { buffer = job:get_bufnr(), desc = "Select job action" })
+  local action_mappings = require "spur.config".get_mappings(
+    "actions",
+    { key = "<C-a>", mode = { "n", "i" } }
+  )
+  for _, mapping in ipairs(action_mappings) do
+    pcall(function()
+      vim.keymap.set(mapping.mode, mapping.key, function()
+        vim.schedule(function()
+          local manager = require "spur.manager"
+          manager.select_job_action(job)
+        end)
+      end, { buffer = job:get_bufnr(), desc = "Select job action" })
+    end)
   end
+end
+
+---@return boolean
+function SpurJobHandler:__output_is_focused(job)
+  if type(job) ~= "table" or type(job.get_bufnr) ~= "function" then
+    return false
+  end
+  local ok, buf = pcall(job.get_bufnr, job)
+  if not ok or type(buf) ~= "number" then
+    return false
+  end
+  local got_buf, cur_buf = pcall(function() return vim.api.nvim_get_current_buf() end)
+  return got_buf and cur_buf == buf
 end
 
 ---@param job SpurJob
@@ -262,7 +281,7 @@ function SpurJobHandler:__get_job_actions(job)
     table.insert(options, { label = "Run", value = "run" })
   end
   if job:can_show_output() then
-    if not job:is_quiet() then
+    if not job:is_quiet() and not self:__output_is_focused(job) then
       table.insert(options, { label = "Output", value = "output" })
     end
   end
@@ -272,6 +291,7 @@ function SpurJobHandler:__get_job_actions(job)
   if job:can_show_output() then
     table.insert(options, { label = "Clean", value = "clean" })
   end
+  table.insert(options, { label = "[Back]", value = "_back" })
   return options
 end
 
@@ -309,6 +329,11 @@ function SpurJobHandler:__execute_job_action(job, action)
   elseif action.value == "clean" then
     vim.schedule(function()
       job:clean()
+    end)
+  elseif action.value == "_back" then
+    vim.schedule(function()
+      local manager = require "spur.manager"
+      manager.select_job()
     end)
   else
     return false

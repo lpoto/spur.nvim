@@ -103,7 +103,19 @@ function SpurJobDbeeHandler:__get_job_actions(job)
     end
   end
   if ok then
+    local back_action = nil
+    for i, action in ipairs(actions) do
+      if type(action) == "table"
+          and type(action.value) == "string"
+          and action.value == "_back" then
+        back_action = action
+        table.remove(actions, i)
+      end
+    end
     table.insert(actions, { label = "[Add Connection]", value = "_add" })
+    if type(back_action) == "table" then
+      table.insert(actions, back_action)
+    end
   end
   return actions
 end
@@ -119,6 +131,10 @@ function SpurJobDbeeHandler:__select_connection(job)
     if type(choice) ~= "table" or not choice.value or choice.value == "" then return end
     if choice.value == "_add" then
       return self:__add_connection(job)
+    end
+    if choice.value == "_back" then
+      SpurJobHandler:__execute_job_action(job, choice)
+      return
     end
     if type(choice.value) == "table" and choice.value.id then
       local api = require "dbee.api"
@@ -190,7 +206,9 @@ function SpurJobDbeeHandler:__select_database(job, conn)
       return self:__select_connection(job)
     end
     if choice.value == "_query" then
-      return self:__query(job, conn)
+      return self:__query(job, conn, false, function()
+        self:__select_database(job, conn)
+      end)
     end
     if type(choice.value) ~= "string" then
       return
@@ -266,7 +284,9 @@ function SpurJobDbeeHandler:__select_action(job, conn, database, multiple_dbs, a
     if choice.value == "_change_db" then
       return self:__select_database(job, conn)
     elseif choice.value == "_query" then
-      return self:__query(job, conn)
+      return self:__query(job, conn, false, function()
+        self:__select_action(job, conn, database, multiple_dbs, allow_query_in_tbl_sel)
+      end)
     elseif choice.value == "_back" then
       if is_db_selection then
         return self:__select_connection(job)
@@ -326,7 +346,9 @@ function SpurJobDbeeHandler:__select_table(job, conn, database, tbl)
     if choice.value == "_back" then
       return self:__select_action(job, conn, database, true)
     end
-    return self:__execute_query(job, conn, choice.value)
+    return self:__execute_query(job, conn, choice.value, false, function()
+      self:__select_table(job, conn, database, tbl)
+    end)
   end)
 end
 
@@ -479,7 +501,7 @@ function add_spur_source()
 end
 
 ---@param job SpurDbeeJob
-function SpurJobDbeeHandler:__execute_query(job, conn, query, from_query_editor)
+function SpurJobDbeeHandler:__execute_query(job, conn, query, from_query_editor, actions_callback)
   if job:execute_query(conn, query) then
     vim.schedule(function()
       self:open_job_output(job, conn)
@@ -495,7 +517,7 @@ function SpurJobDbeeHandler:__execute_query(job, conn, query, from_query_editor)
         for _, k in ipairs({ "<C-O>", "<S-Tab>", "<C-I>", "<Tab>" }) do
           vim.keymap.set({ "i", "n" }, k, function()
             if from_query_editor == true then
-              self:__query(job, conn, true)
+              self:__query(job, conn, true, actions_callback)
             end
           end, { buffer = buf, desc = "Return to query editor" })
         end
@@ -507,7 +529,7 @@ end
 local last_cursor = nil
 
 local visual_selection
-function SpurJobDbeeHandler:__query(job, conn, from_result)
+function SpurJobDbeeHandler:__query(job, conn, from_result, actions_callback)
   local buf = vim.api.nvim_create_buf(false, true)
   local fileutils = require "spur.util.file"
   local path = fileutils.concat_path(vim.fn.stdpath("data"), "dbee", "spur.sql")
@@ -636,11 +658,23 @@ function SpurJobDbeeHandler:__query(job, conn, from_result)
       vim.schedule(function() close(true) end)
     end, { buffer = buf, desc = "Close query window" })
   end
-  for _, key in ipairs({ "<C-a>" }) do
-    vim.keymap.set({ "n", "i" }, key, function()
-      local manager = require "spur.manager"
-      manager.select_job_action(job)
-    end, { buffer = buf, desc = "Select job action" })
+  local action_mappings = require "spur.config".get_mappings(
+    "actions",
+    { key = "<C-a>", mode = { "n", "i" } }
+  )
+  for _, mapping in ipairs(action_mappings) do
+    pcall(function()
+      vim.keymap.set(mapping.mode, mapping.key, function()
+        if type(actions_callback) == "function" then
+          pcall(function()
+            actions_callback()
+          end)
+          return
+        end
+        local manager = require "spur.manager"
+        manager.select_job_action(job)
+      end, { buffer = buf, desc = "Select job action" })
+    end)
   end
   for _, key in ipairs({ "bb", "BB", "bB", "Bb" }) do
     vim.keymap.set("v", key, function()
@@ -653,7 +687,7 @@ function SpurJobDbeeHandler:__query(job, conn, from_result)
       if query:gsub("%s+", "") == "" then
         return
       end
-      self:__execute_query(job, conn, query, true)
+      self:__execute_query(job, conn, query, true, actions_callback)
     end, { buffer = buf, desc = "Execute query" })
   end
   for _, k in ipairs({ "<C-O>", "<S-Tab>", "<C-I>", "<Tab>" }) do

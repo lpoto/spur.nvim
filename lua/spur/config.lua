@@ -4,10 +4,20 @@
 ---@field filetype string|nil
 ---@field prefix string|nil
 ---@field title string|nil
+---@field mappings SpurMappingsConfig|nil
 ---@field custom_hl boolean|function|nil
+
+---@class SpurMappingsConfig
+---@field actions SpurMapping|string|nil
+
+---@class SpurMapping
+---@field key string
+---@field mode string[]|string
 
 ---@type SpurConfig|nil
 local config = nil
+
+local resolve_mapping
 
 ---@param opts table|nil
 ---@return SpurConfig
@@ -76,6 +86,29 @@ local function setup_config(opts)
       vim.api.nvim_set_hl(0, h, { link = link, italic = true })
     end
   end
+
+
+  ---@type SpurMappingsConfig
+  local mappings = {}
+  local available_keys = { "actions" }
+  local mappings_input = c.mappings
+  if type(mappings_input) ~= "table" then
+    ---@diagnostic disable-next-line
+    mappings_input = c.keys
+  end
+  if type(mappings_input) == "table" then
+    for k, v in pairs(mappings_input) do
+      local ok, contains = pcall(vim.tbl_contains, available_keys, k)
+      if ok and contains then
+        local m = resolve_mapping(v)
+        if m ~= nil then
+          mappings[k] = m
+        end
+      end
+    end
+  end
+  c.mappings = mappings
+
   config = c
   return config
 end
@@ -101,6 +134,77 @@ local M = {
 function M.setup(opts)
   setup_config(opts)
   return M
+end
+
+---@param default SpurMapping|string|nil
+---@param action_name string
+---@return SpurMapping[]
+---@diagnostic disable-next-line
+function M.get_mappings(action_name, default)
+  local mappings = {}
+  if type(action_name) ~= "string" or action_name == "" then
+    return mappings
+  end
+  local default_m = resolve_mapping(default)
+  if default_m ~= nil then
+    table.insert(mappings, default_m)
+  end
+
+  if type(config) ~= "table" or type(config.mappings) ~= "table" then
+    return mappings
+  end
+  for k, v in pairs(config.mappings) do
+    local m = resolve_mapping(v)
+    if type(k) == "string"
+        and k ~= ""
+        and m ~= nil then
+      table.insert(mappings, m)
+    end
+  end
+  return mappings
+end
+
+---@param m SpurMapping|string|nil
+function resolve_mapping(m)
+  if m == nil then
+    return nil
+  end
+  local mapping = { mode = { "n" }, key = "" }
+  if type(m) == "string" then
+    if m ~= "" then
+      mapping.key = m
+    end
+  elseif type(m) == "table" then
+    local key = m.key
+    if type(key) ~= "string" then
+      key = m[1]
+    end
+    if type(key) == "string" and key ~= "" then
+      mapping.key = key
+    end
+    if type(m.mode) == "string" then
+      mapping.mode = { m.mode }
+    elseif type(m.mode) == "table" then
+      local modes = {}
+      ---@diagnostic disable-next-line
+      for _, m in ipairs(m.mode) do
+        if type(m) == "string" then
+          table.insert(modes, m)
+        end
+      end
+      if #modes > 0 then
+        mapping.mode = modes
+      end
+    end
+  end
+  if type(mapping) == "table"
+      and type(mapping.key) == "string"
+      and mapping.key ~= ""
+      and type(mapping.mode) == "table"
+      and #mapping.mode > 0 then
+    return mapping
+  end
+  return nil
 end
 
 setmetatable(M, M)
