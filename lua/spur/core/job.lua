@@ -1,5 +1,6 @@
 ---@class SpurJob
 ---@field name string|nil
+---@field type string|nil
 ---@field order number|nil
 ---@field quiet boolean
 ---@field on_exit function|nil
@@ -85,6 +86,9 @@ function SpurJob:new(opts)
   if opts.order ~= nil and type(opts.order) ~= "number" then
     error("SpurJob:new expects 'order' to be a number if provided")
   end
+  if opts.type ~= nil and type(opts.type) ~= "string" then
+    error("SpurJob:new expects 'type' to be a string if provided")
+  end
   if opts.condition ~= nil and type(opts.condition) ~= "table" then
     error("SpurJob:new expects 'condition' to be a table if provided")
   end
@@ -107,6 +111,7 @@ function SpurJob:new(opts)
   local instance = setmetatable({
     job = jobdata,
     name = opts.name or jobdata.name,
+    type = opts.type or nil,
     quiet = opts.quiet == true,
     order = opts.order or nil,
     on_exit = opts.on_exit,
@@ -213,7 +218,8 @@ local create_job_buffer
 
 --- Run the job with the command specified when creating the instance.
 --- The job cannot be run, if it is already running.
-function SpurJob:run()
+---@param args string|string[]|nil
+function SpurJob:run(args)
   local private_opts = private[self]
   if not private_opts then
     error("SpurJob instance is not properly initialized")
@@ -227,7 +233,7 @@ function SpurJob:run()
     end
     local winids = vim.api.nvim_list_wins()
 
-    local ok, err = pcall(self.__start_job, self, private_opts.bufnr)
+    local ok, err = pcall(self.__start_job, self, private_opts.bufnr, args)
     if not ok then
       pcall(function()
         local b = private_opts.bufnr
@@ -318,7 +324,8 @@ function SpurJob:clean()
 end
 
 ---@param bufnr number|nil
-function SpurJob:__start_job(bufnr)
+---@param args string|string[]|nil
+function SpurJob:__start_job(bufnr, args)
   if self:is_running() then
     error("SpurJob:run cannot be called while the job is already running")
   end
@@ -335,7 +342,7 @@ function SpurJob:__start_job(bufnr)
   if self.job.working_dir ~= nil and type(self.job.working_dir) ~= "string" then
     error("SpurJob working_dir must be a string or nil")
   end
-  return start_job(self, bufnr)
+  return start_job(self, bufnr, args)
 end
 
 function SpurJob:__tostring()
@@ -416,7 +423,8 @@ end
 
 ---@param job SpurJob
 ---@param bufnr number|nil
-function start_job(job, bufnr)
+---@param args string|string[]|nil
+function start_job(job, bufnr, args)
   local private_opts = private[job]
   if type(private_opts) ~= "table" then
     error("SpurJob instance is not properly initialized")
@@ -436,9 +444,20 @@ function start_job(job, bufnr)
       working_dir = nil
     end
 
+    local cmd = job.job.cmd
+    if type(args) == "table" then
+      for _, a in ipairs(args) do
+        if type(a) == "string" and a ~= "" then
+          cmd = cmd .. " " .. a
+        end
+      end
+    elseif type(args) == "string" and args ~= "" then
+      cmd = cmd .. " " .. args
+    end
+
     local job_id
     job_id = vim.fn.jobstart(
-      job.job.cmd,
+      cmd,
       {
         term = term,
         cwd = working_dir,

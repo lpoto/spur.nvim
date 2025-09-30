@@ -33,7 +33,7 @@ function SpurJobDapHandler:accepts_job(opts, action)
   if type(opts.job) == "table" then
     return opts.job.cmd == "dap"
   end
-  return true
+  return opts.type == "dap"
 end
 
 ---@param o table Input fields for SpurJob

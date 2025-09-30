@@ -25,7 +25,7 @@ function M.init(config)
   local handler = require "spur.extension.dbee.handler":new()
   manager.add_handler(handler)
 
-  manager.add_job({ dbee = true })
+  manager.add_job({ type = "dbee" })
 end
 
 return M

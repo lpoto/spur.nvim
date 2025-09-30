@@ -39,6 +39,7 @@ function M.init(config)
           if ok and type(jobs) == "table" then
             for _, job in ipairs(jobs) do
               if type(job) == "table" then
+                job.type = "json"
                 require("spur.manager").add_job(job)
               end
             end

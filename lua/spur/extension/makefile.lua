@@ -39,6 +39,9 @@ function M.init(config)
           local ok, jobs = pcall(parse_targets, makefile, content)
           if ok and type(jobs) == "table" then
             for _, job in ipairs(jobs) do
+              if type(job) == "table" then
+                job.type = "makefile"
+              end
               require("spur.manager").add_job(require "spur.core.job":new(job))
             end
           else

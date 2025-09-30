@@ -20,7 +20,9 @@ local private = setmetatable({}, { __mode = "k" })
 ---@return SpurDapJob
 function SpurDapJob:new(opts)
   if type(opts) ~= "table" then
-    opts = {}
+    opts = {
+      type = "dap"
+    }
   end
   if opts.dap == nil or type(opts.dap) ~= "table" then
     error("SpurDapJob:new expects 'dap' to be a table in options")

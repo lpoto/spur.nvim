@@ -27,13 +27,7 @@ function SpurJobDbeeHandler:accepts_job(opts, action)
   if type(action) ~= "string" or action == "" then
     return false
   end
-  if (opts.dbee == true) then
-    return true
-  end
-  if type(opts.job) == "table" then
-    return opts.job.cmd == "dbee"
-  end
-  return false
+  return opts.type == "dbee"
 end
 
 ---@return SpurJob

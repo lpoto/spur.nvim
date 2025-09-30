@@ -18,15 +18,15 @@ local g_result = nil
 ---
 ---@return SpurDbeeJob
 function SpurDbeeJob:new()
-  local opts = {}
-  opts.job = {
-    cmd = "dbee",
-    name = "[Dbee]",
+  local opts = {
+    type = "dbee",
+    job = {
+      cmd = "dbee",
+      name = "[Dbee]",
+    }
   }
   local spur_job = SpurJob:new(opts)
   local instance = setmetatable(spur_job, SpurDbeeJob)
-  ---@diagnostic disable-next-line
-  instance.dbee = true
   ---@diagnostic disable-next-line
   return instance
 end
