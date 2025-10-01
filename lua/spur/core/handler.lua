@@ -225,6 +225,9 @@ function SpurJobHandler:__set_output_window_mappings(job)
       end)
     end, { buffer = job:get_bufnr(), desc = "Stop a running job" })
   end
+  for _, key in ipairs({ "<C-x>" }) do
+    vim.keymap.set({ "n", "i", "t" }, key, "<Esc>")
+  end
   for _, key in ipairs({ "q", "<Esc>" }) do
     vim.keymap.set("n", key, function()
       vim.schedule(function()
