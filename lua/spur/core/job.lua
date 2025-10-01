@@ -113,7 +113,7 @@ function SpurJob:new(opts)
     name = opts.name or jobdata.name,
     type = opts.type or nil,
     quiet = opts.quiet == true,
-    order = opts.order or nil,
+    order = opts.order,
     on_exit = opts.on_exit,
     on_start = opts.on_start,
     on_clean = opts.on_clean,

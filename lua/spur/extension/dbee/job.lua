@@ -19,6 +19,7 @@ local g_result = nil
 ---@return SpurDbeeJob
 function SpurDbeeJob:new()
   local opts = {
+    order = -95,
     type = "dbee",
     job = {
       cmd = "dbee",

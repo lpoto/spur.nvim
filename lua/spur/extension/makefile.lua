@@ -89,7 +89,7 @@ function parse_targets(file, content)
         and target ~= ".PHONY"
         and target ~= "default" then
       table.insert(jobs, {
-        order = 90,
+        order = 98,
         job = {
           name = "make " .. target,
           cmd = "make " .. target,
