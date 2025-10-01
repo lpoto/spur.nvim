@@ -16,6 +16,8 @@ function M.setup(opts)
     manager.init()
   end
 
+  vim.api.nvim_exec_autocmds("User", { pattern = "SpurInit" })
+
   if type(opts.extensions) == "table" then
     for k, ext in pairs(opts.extensions) do
       local ext_name = type(k) == "string" and k or ext

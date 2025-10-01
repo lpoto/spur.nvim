@@ -4,6 +4,7 @@ local M = {}
 ---@field enabled boolean|nil Whether the json extension is enabled
 ---@field model string|nil Which model to use for the copilot cli
 ---@field executable string|nil Custom executable for the copilot cli
+---@field log_level string|nil Log level for the copilot cli (debug, info, warn, error, none)
 
 ---@type SpurJob|nil
 local copilot_job = nil
@@ -29,6 +30,11 @@ function M.init(config)
   if type(config.model) == "string" and config.model ~= "" then
     cmd = cmd .. " --model " .. config.model
   end
+  if type(config.log_level) == "string" and config.log_level ~= "" then
+    cmd = cmd .. " --log-level " .. config.log_level
+  else
+    cmd = cmd .. " --log-level error"
+  end
   if copilot_job ~= nil then
     pcall(function()
       ---@diagnostic disable-next-line
@@ -46,6 +52,7 @@ function init_job(cmd)
     error("[Spur.copilot] init_job expects a non-empty string as cmd")
   end
   local job = {
+    order = -90,
     type = "copilot-cli",
     job = {
       name = "[Copilot]",

@@ -99,6 +99,7 @@ function M.quick_run(cmd)
   quick_run_counter = quick_run_counter + 1
   local job
   job = require "spur.core.job":new({
+    order = -100,
     job = {
       cmd = cmd,
       name = "Quick run " .. counter,
@@ -193,8 +194,18 @@ function M.select_job(filter, on_select, skip_selection_if_one_result)
     if a.order == b.order then
       return a:get_id() < b:get_id()
     end
-    if a.order == nil then return false end
-    if b.order == nil then return true end
+    if a.order == nil then
+      return b.order ~= nil and b.order < 0
+    end
+    if b.order == nil then
+      return a.order == nil or a.order >= 0
+    end
+    if a.order < 0 then
+      return b.order < a.order
+    end
+    if b.order < 0 then
+      return a.order > b.order
+    end
     return a.order < b.order
   end)
   if type(filter) ~= "function" and type(on_select) ~= "function" then
