@@ -282,6 +282,8 @@ function SpurJobHandler:__get_job_actions(job)
   end
   if job:can_run() and not job:is_running() then
     table.insert(options, { label = "Run", value = "run" })
+  elseif job:can_restart() and job:is_running() then
+    table.insert(options, { label = "Restart", value = "restart" })
   end
   if job:can_show_output() then
     if not job:is_quiet() and not self:__output_is_focused(job) then
@@ -318,6 +320,10 @@ function SpurJobHandler:__execute_job_action(job, action)
           self:open_job_output(job)
         end
       end)
+    end)
+  elseif action.value == "restart" then
+    vim.schedule(function()
+      job:kill("restart")
     end)
   elseif action.value == "kill" then
     vim.schedule(function()

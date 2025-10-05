@@ -214,6 +214,11 @@ function SpurJob:can_run()
   return private_opts ~= nil and not self:is_running()
 end
 
+function SpurJob:can_restart()
+  local private_opts = private[self]
+  return private_opts ~= nil
+end
+
 local create_job_buffer
 
 --- Run the job with the command specified when creating the instance.
@@ -224,10 +229,20 @@ function SpurJob:run(args)
   if not private_opts then
     error("SpurJob instance is not properly initialized")
   end
+  local is_restarting =
+      type(private_opts) == "table"
+      and type(private_opts.flags) == "table"
+      and private_opts.flags.restart == true
+  if is_restarting then
+    private_opts.flags.restart = nil
+  end
+
   vim.schedule(function()
     local existing_buf = self:get_bufnr()
     if self:is_quiet() then
       private_opts.bufnr = nil
+    elseif is_restarting then
+      private_opts.bufnr = existing_buf
     else
       private_opts.bufnr = create_job_buffer(self)
     end
@@ -244,36 +259,45 @@ function SpurJob:run(args)
       end)
       error(err)
     end
-    pcall(function()
-      local config = require "spur.config"
-      for _, winid in ipairs(winids) do
-        local buf = vim.api.nvim_win_get_buf(winid)
-        if buf == existing_buf
-            or vim.bo[buf].filetype == config.filetype then
-          pcall(function()
-            vim.api.nvim_win_close(winid, true)
-          end)
+    if not is_restarting then
+      pcall(function()
+        local config = require "spur.config"
+        for _, winid in ipairs(winids) do
+          local buf = vim.api.nvim_win_get_buf(winid)
+          if buf == existing_buf
+              or vim.bo[buf].filetype == config.filetype then
+            pcall(function()
+              vim.api.nvim_win_close(winid, true)
+            end)
+          end
         end
-      end
-    end)
-    pcall(function()
-      if existing_buf ~= nil and vim.api.nvim_buf_is_valid(existing_buf) then
-        -- If the job was already running, we need to clean up the old buffer.
-        vim.api.nvim_buf_delete(existing_buf, { force = true })
-      end
-    end)
+      end)
+      pcall(function()
+        if existing_buf ~= nil and vim.api.nvim_buf_is_valid(existing_buf) then
+          -- If the job was already running, we need to clean up the old buffer.
+          vim.api.nvim_buf_delete(existing_buf, { force = true })
+        end
+      end)
+    end
   end)
 end
 
 --- Kills the job if it is running.
 --- This does not delete the job's buffer.
-function SpurJob:kill()
+---@param flag string|nil
+function SpurJob:kill(flag)
   local private_opts = private[self]
   if private_opts == nil then
     error("SpurJob instance is not properly initialized")
   end
   if private_opts.job_id == nil then
     return
+  end
+  if type(flag) == "string" and flag ~= "" then
+    if type(private_opts.flags) ~= "table" then
+      private_opts.flags = {}
+    end
+    private_opts.flags[flag] = true
   end
   self:__send_signal("interrupt")
   vim.schedule(function()
@@ -369,13 +393,24 @@ function SpurJob:__on_exit(opts)
     if type(private_opts) ~= "table" then
       return
     end
-    local bufnr = self:get_bufnr()
-    if type(bufnr) ~= "number"
-        or not vim.api.nvim_buf_is_valid(bufnr) then
-      return
+    local restart = false
+    local flags = private_opts.flags
+    if type(flags) == "table" and flags.restart == true then
+      restart = true
     end
-    vim.bo[bufnr].buflisted = false
-    vim.bo[bufnr].modified = false
+
+    local bufnr = self:get_bufnr()
+    if type(bufnr) == "number" and vim.api.nvim_buf_is_valid(bufnr) then
+      vim.bo[bufnr].buflisted = false
+      vim.bo[bufnr].modified = false
+    end
+    if restart then
+      vim.schedule(function()
+        pcall(function()
+          self:run()
+        end)
+      end)
+    end
   end)
 end
 

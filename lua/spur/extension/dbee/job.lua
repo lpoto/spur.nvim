@@ -59,6 +59,10 @@ function SpurDbeeJob:is_running()
   return true
 end
 
+function SpurDbeeJob:can_restart()
+  return false
+end
+
 --- Check whether this job can be run
 function SpurDbeeJob:can_run()
   -- NOTE: Dbee job can never be run with "run"

@@ -122,6 +122,10 @@ function SpurDapJob:is_running()
   return type(session) == "table" and session.id == private_opts.session.id
 end
 
+function SpurDapJob:can_restart()
+  return false
+end
+
 --- Check whether this job can be run
 function SpurDapJob:can_run()
   if not SpurJob.can_run(self) then
