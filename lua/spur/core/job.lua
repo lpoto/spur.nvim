@@ -8,6 +8,7 @@
 ---@field on_clean function|nil
 ---@field job SpurJobData|nil
 ---@field condition SpurJobCondition|nil
+---@field note string|nil
 local SpurJob = {}
 SpurJob.__index = SpurJob
 SpurJob.__type = "SpurJob"
@@ -89,6 +90,9 @@ function SpurJob:new(opts)
   if opts.type ~= nil and type(opts.type) ~= "string" then
     error("SpurJob:new expects 'type' to be a string if provided")
   end
+  if opts.note ~= nil and type(opts.note) ~= "string" then
+    error("SpurJob:new expects 'note' to be a string if provided")
+  end
   if opts.condition ~= nil and type(opts.condition) ~= "table" then
     error("SpurJob:new expects 'condition' to be a table if provided")
   end
@@ -118,6 +122,7 @@ function SpurJob:new(opts)
     on_start = opts.on_start,
     on_clean = opts.on_clean,
     condition = opts.condition,
+    note = opts.note,
   }, self)
   private[instance] = private_opts
   return instance
@@ -524,6 +529,11 @@ function start_job(job, bufnr, args)
   local config = require "spur.config"
   pcall(function()
     vim.api.nvim_chan_send(job_id, "#" .. config.prefix .. job.job.cmd .. "\n\n")
+    if type(job.note) == "string" and job.note ~= "" then
+      vim.api.nvim_chan_send(
+        job_id,
+        "#" .. config.prefix .. "Note: " .. job.note .. "\n\n")
+    end
     if type(bufnr) == "number" then
       vim.api.nvim_buf_call(bufnr, function()
         vim.schedule(function()

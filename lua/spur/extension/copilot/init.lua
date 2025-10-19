@@ -58,7 +58,7 @@ function init_job(cmd)
       name = "[Copilot]",
       cmd = cmd,
     },
-    ---@diagnostic disable-next-line
+    note = "Cancel with C-x instead of Esc"
   }
   local manager = require("spur.manager")
   local handler = require "spur.extension.copilot.handler":new()
