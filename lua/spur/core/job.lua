@@ -9,6 +9,7 @@
 ---@field job SpurJobData|nil
 ---@field condition SpurJobCondition|nil
 ---@field note string|nil
+---@field show_headers boolean|nil
 local SpurJob = {}
 SpurJob.__index = SpurJob
 SpurJob.__type = "SpurJob"
@@ -106,6 +107,9 @@ function SpurJob:new(opts)
       error("SpurJob:new expects 'condition.show_in_subdirs' to be a boolean if provided")
     end
   end
+  if opts.show_headers ~= nil and type(opts.show_headers) ~= "boolean" then
+    error("SpurJob:new expects 'show_headers' to be a boolean if provided")
+  end
   id_counter = id_counter + 1
   local private_opts = {
     id = id_counter,
@@ -123,6 +127,7 @@ function SpurJob:new(opts)
     on_clean = opts.on_clean,
     condition = opts.condition,
     note = opts.note,
+    show_headers = opts.show_headers == true,
   }, self)
   private[instance] = private_opts
   return instance
@@ -528,11 +533,13 @@ function start_job(job, bufnr, args)
 
   local config = require "spur.config"
   pcall(function()
-    vim.api.nvim_chan_send(job_id, "#" .. config.prefix .. job.job.cmd .. "\n\n")
-    if type(job.note) == "string" and job.note ~= "" then
-      vim.api.nvim_chan_send(
-        job_id,
-        "#" .. config.prefix .. "Note: " .. job.note .. "\n\n")
+    if job.show_headers == true then
+      vim.api.nvim_chan_send(job_id, "#" .. config.prefix .. job.job.cmd .. "\n\n")
+      if type(job.note) == "string" and job.note ~= "" then
+        vim.api.nvim_chan_send(
+          job_id,
+          "#" .. config.prefix .. "Note: " .. job.note .. "\n\n")
+      end
     end
     if type(bufnr) == "number" then
       vim.api.nvim_buf_call(bufnr, function()
