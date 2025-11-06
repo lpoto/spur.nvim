@@ -259,6 +259,7 @@ function SpurDapWriter:__write_lines(lines)
       end)
 
       vim.bo[bufnr].modified = false
+      has_focus = has_focus and bufnr == vim.api.nvim_get_current_buf()
       if move_to_end and has_focus then
         vim.api.nvim_win_set_cursor(0, { vim.api.nvim_buf_line_count(bufnr), 0 })
       end
@@ -551,6 +552,9 @@ function set_output_buf_options(bufnr)
           local last_line_text = vim.api.nvim_buf_get_lines(bufnr, last_line - 1, last_line, false)
               [1] or ""
           local last_col = #last_line_text
+          if bufnr ~= vim.api.nvim_get_current_buf() then
+            return
+          end
           vim.api.nvim_win_set_cursor(0, { last_line, last_col })
         end)
         pcall(function()

@@ -331,6 +331,9 @@ function SpurJobHandler:__execute_job_action(job, action)
   elseif action.value == "restart" then
     vim.schedule(function()
       job:kill("restart")
+      vim.schedule(function()
+        self:open_job_output(job)
+      end)
     end)
   elseif action.value == "kill" then
     vim.schedule(function()
