@@ -303,16 +303,21 @@ function SpurJob:kill(flag)
   if private_opts.job_id == nil then
     return
   end
+  local job_id = private_opts.job_id
   if type(flag) == "string" and flag ~= "" then
     if type(private_opts.flags) ~= "table" then
       private_opts.flags = {}
     end
     private_opts.flags[flag] = true
   end
-  self:__send_signal("interrupt")
-  vim.schedule(function()
-    vim.fn.jobstop(private_opts.job_id)
-  end)
+  if vim.v.exiting ~= 0 then
+    pcall(vim.fn.jobstop, job_id)
+  else
+    self:__send_signal("interrupt")
+    vim.schedule(function()
+      pcall(vim.fn.jobstop, job_id)
+    end)
+  end
 end
 
 function SpurJob:__send_signal(name)
@@ -500,9 +505,30 @@ function start_job(job, bufnr, args)
       cmd = cmd .. " " .. args
     end
 
+    -- NOTE: Wrap the command so that when Neovim exits,
+    -- the job is also killed.
+    -- This prevents orphaned processes.
+    -- This is done by trapping the EXIT signal and
+    -- killing the entire process group.
+    local nvim_pid = vim.fn.getpid()
+    local cmd_wrapper = {
+      "sh",
+      "-c",
+      string.format([[
+        (
+          trap 'kill 0' EXIT
+          while kill -0 %d 2>/dev/null; do sleep 1; done
+          kill 0
+        ) &
+        exec %s
+        ]],
+        nvim_pid,
+        cmd)
+    }
+
     local job_id
     job_id = vim.fn.jobstart(
-      cmd,
+      cmd_wrapper,
       {
         term = term,
         cwd = working_dir,

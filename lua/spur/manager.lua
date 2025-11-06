@@ -6,14 +6,11 @@ local quick_run_counter = 1
 local handlers = {}
 local initialized = false
 
-local init_kill_jobs_on_exit_autocmd
-
 --- Initialize the job manager -- clearing
 --- the current handlers and adding a default handler.
 function M.init()
   handlers = {}
   M.add_handler(require "spur.core.handler":new())
-  init_kill_jobs_on_exit_autocmd()
   initialized = true
 end
 
@@ -341,29 +338,6 @@ function job_is_available(job)
     return false
   end
   return job:__is_available()
-end
-
-local kill_jobs_on_exit
-
-function init_kill_jobs_on_exit_autocmd()
-  local group = vim.api.nvim_create_augroup("SpurKillJobsOnExit", { clear = true })
-  vim.api.nvim_create_autocmd("VimLeavePre", {
-    group = group,
-    callback = kill_jobs_on_exit,
-  })
-end
-
-function kill_jobs_on_exit()
-  pcall(function()
-    for _, job in pairs(jobs) do
-      if type(job) == "table"
-          and type(job.kill) == "function" then
-        pcall(function()
-          job:kill()
-        end)
-      end
-    end
-  end)
 end
 
 return M
