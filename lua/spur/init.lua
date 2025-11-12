@@ -51,8 +51,10 @@ end
 --- Select a job from the list of available jobs.
 --- On selection, the user will be prompted to
 --- select an action for the job.
-function M.select_job()
-  require "spur.manager".select_job()
+---
+--- @param job_name string|nil
+function M.select_job(job_name)
+  require "spur.manager".select_job(job_name)
 end
 
 --- Select a job from the list of available jobs,
@@ -63,6 +65,7 @@ end
 function M.select_output()
   local manager = require "spur.manager"
   manager.select_job(
+    nil,
     function(job)
       return job:get_bufnr() ~= nil
           and vim.api.nvim_buf_is_valid(job:get_bufnr())

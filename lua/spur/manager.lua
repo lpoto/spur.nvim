@@ -137,11 +137,12 @@ local is_quick_run
 --- On selection, the user will be prompted to
 --- select an action for the job.
 ---
+--- @param selection string|nil Preselected job name
 --- @param filter function|nil select only from
 --- @param on_select function|nil custom on select handler
 --- @param skip_selection_if_one_result boolean|nil Auto select a single result
 --- jobs that pass the filter.
-function M.select_job(filter, on_select, skip_selection_if_one_result)
+function M.select_job(selection, filter, on_select, skip_selection_if_one_result)
   if type(jobs) ~= "table" then
     return
   end
@@ -225,8 +226,18 @@ function M.select_job(filter, on_select, skip_selection_if_one_result)
     end
     return M.select_job_action(o)
   end
-
-  if #filtered_jobs == 1 and skip_selection_if_one_result == true then
+  if type(selection) == "string" and selection ~= "" then
+    for _, job in ipairs(filtered_jobs) do
+      if job.name == selection then
+        return select(job)
+      end
+    end
+    for _, job in ipairs(filtered_jobs) do
+      if format_job_name(job) == selection then
+        return select(job)
+      end
+    end
+  elseif #filtered_jobs == 1 and skip_selection_if_one_result == true then
     return select(filtered_jobs[1])
   end
 
