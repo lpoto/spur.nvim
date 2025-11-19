@@ -6,6 +6,7 @@
 ---@field on_exit function|nil
 ---@field on_start function|nil
 ---@field on_clean function|nil
+---@field on_stdout function|nil
 ---@field job SpurJobData|nil
 ---@field condition SpurJobCondition|nil
 ---@field note string|nil
@@ -76,6 +77,9 @@ function SpurJob:new(opts)
   if opts.on_exit ~= nil and type(opts.on_exit) ~= "function" then
     error("SpurJob:new expects 'on_exit' to be a function if provided")
   end
+  if opts.on_stdout ~= nil and type(opts.on_stdout) ~= "function" then
+    error("SpurJob:new expects 'on_stdout' to be a function if provided")
+  end
   if opts.on_start ~= nil and type(opts.on_start) ~= "function" then
     error("SpurJob:new expects 'on_start' to be a function if provided")
   end
@@ -125,6 +129,7 @@ function SpurJob:new(opts)
     on_exit = opts.on_exit,
     on_start = opts.on_start,
     on_clean = opts.on_clean,
+    on_stdout = opts.on_stdout,
     condition = opts.condition,
     note = opts.note,
     show_headers = opts.show_headers == true,
@@ -535,6 +540,11 @@ function start_job(job, bufnr, args)
         clear_env = job.job.clear_env,
         env = job.job.env,
         detach = false,
+        on_stdout = function(...)
+          if type(job.on_stdout) == "function" then
+            pcall(job.on_stdout, ...)
+          end
+        end,
         on_exit = function(_, code, msg)
           private_opts.job_id = nil
           job:__on_exit({

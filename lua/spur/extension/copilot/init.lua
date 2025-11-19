@@ -41,6 +41,8 @@ function init_job(cmd)
   if type(cmd) ~= "string" or cmd == "" then
     error("[Spur.copilot] init_job expects a non-empty string as cmd")
   end
+  ---@diagnostic disable-next-line
+  local last_print_time = vim.loop.now()
   local job = {
     order = -90,
     type = "copilot-cli",
@@ -48,7 +50,43 @@ function init_job(cmd)
       name = "[Copilot]",
       cmd = cmd,
     },
-    show_headers = false
+    show_headers = false,
+    on_stdout = function(_, out)
+      vim.schedule(function()
+        if type(out) ~= "table" then
+          return
+        end
+        local bufnr = vim.api.nvim_get_current_buf()
+        if copilot_job == nil or bufnr == copilot_job:get_bufnr() then
+          return
+        end
+        ---@diagnostic disable-next-line
+        local now = vim.loop.now()
+        if last_print_time + 1000 > now then
+          return
+        end
+        for _, line in ipairs(out) do
+          if string.find(line, "Confirm with number keys or ↑↓ keys and Enter, Cancel with Esc") then
+            local msg = "User confirmation is required"
+            if type(vim.g.display_message) == "function" then
+              local config = require "spur.config"
+              vim.g.display_message {
+                message = msg,
+                title = config.title,
+              }
+            end
+            last_print_time = now
+            local config = require "spur.config"
+            vim.notify("[Copilot] " .. msg,
+              vim.log.levels.INFO,
+              {
+                title = config.title
+              })
+            return
+          end
+        end
+      end)
+    end
   }
   local manager = require("spur.manager")
   local handler = require "spur.extension.copilot.handler":new()

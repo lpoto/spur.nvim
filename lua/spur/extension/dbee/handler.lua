@@ -478,7 +478,7 @@ function SpurJobDbeeHandler:open_job_output(job, conn, actions_callback)
       return
     end
     for _, k in ipairs({ "<C-O>", "<S-Tab>", "<C-I>", "<Tab>" }) do
-      vim.keymap.set({ "i", "n" }, k, function()
+      vim.keymap.set({ "n" }, k, function()
         self:__query(job, conn, actions_callback)
       end, { buffer = buf, desc = "Return to query editor" })
     end
@@ -699,7 +699,7 @@ function SpurJobDbeeHandler:__query(job, conn, actions_callback)
     end, { buffer = buf, desc = "Execute query" })
   end
   for _, k in ipairs({ "<C-O>", "<S-Tab>", "<C-I>", "<Tab>" }) do
-    vim.keymap.set({ "i", "n" }, k, function()
+    vim.keymap.set({ "n" }, k, function()
       self:open_job_output(job, conn, actions_callback)
     end, { buffer = buf, desc = "Return to result window" })
   end
