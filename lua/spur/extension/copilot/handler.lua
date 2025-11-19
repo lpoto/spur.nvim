@@ -1,15 +1,15 @@
 local SpurJobHandler = require("spur.core.handler")
 
----@class SpurJobCodexCliHandler : SpurJobHandler
-local SpurJobCodexCliHandler = setmetatable({}, { __index = SpurJobHandler })
-SpurJobCodexCliHandler.__index = SpurJobCodexCliHandler
-SpurJobCodexCliHandler.__type = "SpurHandler"
-SpurJobCodexCliHandler.__subtype = "SpurJobCodexCliHandler"
-SpurJobCodexCliHandler.__metatable = SpurJobCodexCliHandler
+---@class SpurJobCopilotCliHandler : SpurJobHandler
+local SpurJobCopilotCliHandler = setmetatable({}, { __index = SpurJobHandler })
+SpurJobCopilotCliHandler.__index = SpurJobCopilotCliHandler
+SpurJobCopilotCliHandler.__type = "SpurHandler"
+SpurJobCopilotCliHandler.__subtype = "SpurJobCopilotCliHandler"
+SpurJobCopilotCliHandler.__metatable = SpurJobCopilotCliHandler
 
-function SpurJobCodexCliHandler:new()
+function SpurJobCopilotCliHandler:new()
   local handler = SpurJobHandler:new()
-  local instance = setmetatable(handler, SpurJobCodexCliHandler)
+  local instance = setmetatable(handler, SpurJobCopilotCliHandler)
   return instance
 end
 
@@ -18,7 +18,7 @@ end
 --- @param opts table Input fields for SpurJob
 --- @param action string What action the job should be accepted for
 --- @return boolean
-function SpurJobCodexCliHandler:accepts_job(opts, action)
+function SpurJobCopilotCliHandler:accepts_job(opts, action)
   if type(opts) ~= "table" then
     return false
   end
@@ -27,18 +27,19 @@ function SpurJobCodexCliHandler:accepts_job(opts, action)
   if type(action) ~= "string" or action == "" then
     return false
   end
-  return opts.type == "codex-cli"
+  return opts.type == "copilot-cli"
 end
 
 ---@param job SpurJob
 ---@return table[]
-function SpurJobCodexCliHandler:__get_job_actions(job)
+function SpurJobCopilotCliHandler:__get_job_actions(job)
   local actions = SpurJobHandler.__get_job_actions(self, job)
   local new_actions = {}
   if type(actions) == "table" then
     for _, action in ipairs(actions) do
       table.insert(new_actions, action)
       if type(action) == "table" and action.value == "run" then
+        table.insert(new_actions, { label = "Continue", value = "continue" })
         table.insert(new_actions, { label = "Resume", value = "resume" })
       end
     end
@@ -46,13 +47,27 @@ function SpurJobCodexCliHandler:__get_job_actions(job)
   return new_actions
 end
 
-function SpurJobCodexCliHandler:__execute_job_action(job, action)
+function SpurJobCopilotCliHandler:__execute_job_action(job, action)
   if SpurJobHandler.__execute_job_action(self, job, action) then
-    return
+    return false
   end
-  if type(action) == "table" and action.value == "resume" then
+  if type(action) ~= "table" then
+    return false
+  end
+  if action.value == "resume" then
     vim.schedule(function()
-      job:run("resume")
+      job:run("--resume")
+      vim.schedule(function()
+        if job:is_running() and not job:is_quiet() then
+          self:open_job_output(job)
+        end
+      end)
+    end)
+    return true
+  end
+  if action.value == "continue" then
+    vim.schedule(function()
+      job:run("--continue")
       vim.schedule(function()
         if job:is_running() and not job:is_quiet() then
           self:open_job_output(job)
@@ -64,7 +79,7 @@ function SpurJobCodexCliHandler:__execute_job_action(job, action)
   return false
 end
 
-function SpurJobCodexCliHandler:open_job_output(job)
+function SpurJobCopilotCliHandler:open_job_output(job)
   local bufnr = vim.api.nvim_get_current_buf()
 
   local open = SpurJobHandler.open_job_output(self, job)
@@ -100,4 +115,4 @@ function SpurJobCodexCliHandler:open_job_output(job)
   return open
 end
 
-return SpurJobCodexCliHandler
+return SpurJobCopilotCliHandler
