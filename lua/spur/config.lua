@@ -136,7 +136,7 @@ function M.setup(opts)
   return M
 end
 
----@param default SpurMapping|string|nil
+---@param default SpurMapping[]|string|nil
 ---@param action_name string
 ---@return SpurMapping[]
 ---@diagnostic disable-next-line
@@ -145,9 +145,13 @@ function M.get_mappings(action_name, default)
   if type(action_name) ~= "string" or action_name == "" then
     return mappings
   end
-  local default_m = resolve_mapping(default)
-  if default_m ~= nil then
-    table.insert(mappings, default_m)
+  if type(default) == "table" then
+    for _, v in ipairs(default) do
+      local default_m = resolve_mapping(v)
+      if default_m ~= nil then
+        table.insert(mappings, default_m)
+      end
+    end
   end
 
   if type(config) ~= "table" or type(config.mappings) ~= "table" then

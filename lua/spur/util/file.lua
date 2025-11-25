@@ -63,6 +63,21 @@ function M.concat_path(...)
   return table.concat(result, sep)
 end
 
+---@param file_path string
+---@return string|nil
+function M.get_parent_dir(file_path)
+  if type(file_path) ~= "string" or file_path == "" then
+    return nil
+  end
+  local sep = M.get_path_separator()
+  local parts = vim.split(file_path, sep)
+  if #parts <= 1 then
+    return nil
+  end
+  table.remove(parts)
+  return table.concat(parts, sep)
+end
+
 ---@return string
 function M.get_path_separator()
   return vim.fn.has("win32") == 1 and "\\" or "/"

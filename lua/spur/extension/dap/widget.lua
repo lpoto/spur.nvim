@@ -161,7 +161,11 @@ function SpurDapWidget:__add_widget_buf_mappings()
   if type(self.job) == "table" then
     local mappings = require "spur.config".get_mappings(
       "actions",
-      { key = "<C-a>", mode = { "n", "i" } }
+      {
+        { key = "<C-a>",     mode = { "n", "i" } },
+        { key = "<leader>s", mode = { "n" } },
+        { key = "<leader>a", mode = { "n" } },
+      }
     )
     for _, mapping in ipairs(mappings) do
       pcall(function()

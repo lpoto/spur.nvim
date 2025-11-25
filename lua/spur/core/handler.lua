@@ -117,9 +117,7 @@ function SpurJobHandler:open_job_output(job)
 end
 
 function SpurJobHandler:__open_float(job, bufnr, name)
-  if type(name) ~= "string" or name == "" then
-    name = "[output] " .. job:get_name()
-  end
+  name = self:__get_output_name(job, name)
 
   local win_opts = self.__get_win_opts(name)
 
@@ -127,6 +125,13 @@ function SpurJobHandler:__open_float(job, bufnr, name)
   self:__set_output_window_options(win_id, job)
   self:__set_output_window_mappings(job)
   return win_id
+end
+
+function SpurJobHandler:__get_output_name(job, name)
+  if type(name) ~= "string" or name == "" then
+    return "[output] " .. job:get_name()
+  end
+  return name
 end
 
 function SpurJobHandler.__get_win_opts(title)
@@ -251,7 +256,11 @@ function SpurJobHandler:__set_output_window_mappings(job)
   end
   local action_mappings = require "spur.config".get_mappings(
     "actions",
-    { key = "<C-a>", mode = { "n", "i" } }
+    {
+      { key = "<C-a>",     mode = { "n", "i" } },
+      { key = "<leader>s", mode = { "n" } },
+      { key = "<leader>a", mode = { "n" } },
+    }
   )
   for _, mapping in ipairs(action_mappings) do
     pcall(function()
