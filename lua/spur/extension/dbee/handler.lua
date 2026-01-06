@@ -770,7 +770,6 @@ function register_action_mappings(job, buf, actions_callback)
       { key = "<C-a>",     mode = { "n", "i" } },
       { key = "<C-s>",     mode = { "n", "i" } },
       { key = "<C-q>",     mode = { "n", "i" } },
-      { key = "<C-d>",     mode = { "n", "i" } },
       { key = "<leader>s", mode = { "n" } },
       { key = "<leader>d", mode = { "n" } },
       { key = "<leader>q", mode = { "n" } },
