@@ -20,7 +20,8 @@ function SpurDbeeResult:new(on_exit)
     {
       buffer_options = {
         bufhidden = "hide",
-      }
+      },
+      page_size = 5000
     })
 
   if result_ui == nil then
