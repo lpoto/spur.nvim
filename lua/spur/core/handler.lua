@@ -135,8 +135,13 @@ function SpurJobHandler:__get_output_name(job, name)
 end
 
 function SpurJobHandler.__get_win_opts(title)
-  local width = math.floor(vim.o.columns * 0.8)
-  local height = math.floor(vim.o.lines * 0.9)
+  local min_width = 248;
+  local min_height = 68;
+  local columns = vim.o.columns - 2
+  local lines = vim.o.lines - 3
+
+  local width = math.min(columns, math.max(min_width, math.floor(columns * 0.8)))
+  local height = math.min(lines, math.max(min_height, math.floor(lines * 0.9)))
   local row = math.floor((vim.o.lines - height) / 2)
   local col = math.floor((vim.o.columns - width) / 2)
 

@@ -486,12 +486,12 @@ function SpurDapJob:__start_job()
       if type(bufnr) ~= "number" then
         return
       end
+      -- TODO: Override dap function to open
+      -- output in a float like other spur jobs do
       local config = require "spur.config"
       vim.bo[bufnr].filetype = config.filetype
       private_opts.session = new_session
       private_opts.buf = bufnr
-      require "spur".toggle_output()
-      require "spur".toggle_output()
       self:__on_start()
     end, 50)
   end
