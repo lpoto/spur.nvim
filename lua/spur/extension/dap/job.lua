@@ -170,13 +170,11 @@ function SpurDapJob:kill()
     return
   end
   killed[self:get_id()] = true
-  self:__send_signal("interrupt")
   vim.schedule(function()
     dap.terminate()
   end)
 end
 
---- Kills the job if it is running and deletes the job's writer.
 function SpurDapJob:clean()
   local private_opts = private[self]
   if private_opts == nil then
@@ -185,7 +183,7 @@ function SpurDapJob:clean()
   SpurJob.clean(self)
 
   vim.schedule(function()
-    private_opts.writer = nil
+    private_opts.buf = nil
   end)
 end
 
@@ -283,10 +281,9 @@ end
 function SpurDapJob:get_bufnr()
   local private_opts = private[self]
   if type(private_opts) == "table"
-      and type(private_opts.writer) == "table"
-      and type(private_opts.writer:get_bufnr()) == "number"
+      and type(private_opts.buf) == "number"
   then
-    return private_opts.writer:get_bufnr()
+    return private_opts.buf
   end
   return nil
 end
@@ -345,20 +342,6 @@ function SpurDapJob:run()
   end)
 end
 
-function SpurDapJob:__send_signal(name)
-  if type(name) ~= "string" or name == "" then
-    return
-  end
-  local config = require "spur.config"
-  local writer = self:__get_writer()
-  if writer ~= nil then
-    writer:write({
-      message = "\n" .. config.prefix .. "Signal - " .. name .. "\n",
-      hl = config.hl.debug,
-    })
-  end
-end
-
 function SpurDapJob:__execute_stopped_session_call(call)
   if type(call) ~= "function" then
     return
@@ -389,15 +372,6 @@ function SpurDapJob:__tostring()
   return string.format("SpurDapJob(%s)", self:get_name())
 end
 
----@return SpurDapWriter|nil
-function SpurDapJob:__get_writer()
-  local private_opts = private[self]
-  if type(private_opts) ~= "table" then
-    return nil
-  end
-  return type(private_opts.writer) == "table" and private_opts.writer or nil
-end
-
 ---@param kind string
 ---@return SpurDapWidget
 function SpurDapJob:__get_widget(kind)
@@ -408,7 +382,6 @@ function SpurDapJob:__start_job()
   if not self:can_run() then
     error("SpurDapJob:run cannot be run at this time")
   end
-
   local ok, dap = pcall(require, "dap")
   if not ok then
     error("[Spur.dap] DAP module not found. Please install 'mfussenegger/nvim-dap' plugin.")
@@ -471,211 +444,57 @@ function SpurDapJob:__start_job()
     then
       dap.adapters[configuration.type] = previous_adapter
     end
-    if type(dap.listeners) == "table"
-        and type(dap.listeners.after) == "table"
-    then
-      if type(dap.listeners.after.event_output) == "table" then
-        dap.listeners.after.event_output[key] = nil
-      end
-      if type(dap.listeners.after.event_stopped) == "table" then
-        dap.listeners.after.event_stopped[key] = nil
-      end
-    end
-    if type(dap.listeners) == "table"
-        and type(dap.listeners.before) == "table"
-    then
-      if type(dap.listeners.before.event_stopped) == "table" then
-        dap.listeners.before.event_stopped[key] = nil
-      end
-    end
+    dap.listeners.after.launch[key] = nil
     did_exit = true
 
     self:__on_exit({
       killed = did_kill
     })
   end
+  local old_bufs = vim.api.nvim_list_bufs()
 
   local prev_session = dap.session()
   dap.run(configuration, {
     new = true,
     after = on_exit
   })
-  local new_session = dap.session()
-  ok = new_session ~= nil
-      and (prev_session == nil or prev_session.id ~= new_session.id)
-      and not new_session.closed
-  if not ok then
-    return nil
-  end
-  private_opts.session = new_session
-  local config = require "spur.config"
-  local writer = nil
-  if not self:is_quiet() then
-    writer = require("spur.extension.dap.writer"):new(self)
-    private_opts.writer = writer
-  else
-    private_opts.writer = nil
-  end
-  local bufnr = nil
-  if writer ~= nil then
-    bufnr = writer:get_bufnr()
-    local msg = config.prefix
-    local name = self:get_name()
-    if type(name) == "string" and name ~= "" then
-      pcall(function()
-        if not name:lower():find("debug") and not name:lower():find("dbg") then
-          name = "Debug - " .. name
-        end
-      end)
-      msg = msg .. name
-    else
-      msg = msg .. "Debug - " .. configuration.type
+  dap.listeners.after.launch[key] = function()
+    local new_session = dap.session()
+    ok = new_session ~= nil
+        and (prev_session == nil or prev_session.id ~= new_session.id)
+        and not new_session.closed
+    if not ok then
+      return nil
     end
-    writer:write({ message = msg .. "\n", hl = config.hl.info })
-  end
-
-  if type(dap.listeners) ~= "table" then
-    dap.listeners = {}
-  end
-  if type(dap.listeners.after) ~= "table" then
-    dap.listeners.after = {}
-  end
-  if type(dap.listeners.before) ~= "table" then
-    dap.listeners.before = {}
-  end
-  if type(dap.listeners.after.event_output) ~= "table" then
-    dap.listeners.after.event_output = {}
-  end
-  if type(dap.listeners.after.event_stopped) ~= "table" then
-    dap.listeners.after.event_stopped = {}
-  end
-  if type(dap.listeners.before.event_stopped) ~= "table" then
-    dap.listeners.before.event_stopped = {}
-  end
-  dap.listeners.after.event_output[key] = function(session, output)
-    vim.schedule(function()
-      if type(output) ~= "table"
-          or type(session) ~= "table"
-          or type(private_opts.session) ~= "table"
-          or type(output.output) ~= "string"
-          or session.id ~= private_opts.session.id
-          or type(output.category) ~= "string" or output.category == "console" then
-        return
-      end
-      if writer ~= nil then
-        writer:write({ message = output.output })
-      end
-    end)
-  end
-  dap.listeners.before.event_stopped[key] = function(session, o)
-    vim.schedule(function()
-      if type(session) ~= "table"
-          or type(private_opts.session) ~= "table"
-          or session.id ~= private_opts.session.id
-          or type(o) ~= "table" or o.reason ~= "breakpoint" then
-        return
-      end
-      -- NOTE: Before breakpoint we try to close
-      -- any existing windows for this plugin, so
-      -- we dont jump to breakpoints in our floats.
-      if type(o) == "table" and o.reason == "breakpoint" then
-        pcall(function()
-          local win_ids = vim.api.nvim_list_wins()
-          for _, win_id in ipairs(win_ids) do
-            local buf = vim.api.nvim_win_get_buf(win_id)
-            if bufnr == buf
-                or vim.bo[buf].filetype == config.filetype
-                and vim.bo[buf].buftype == "prompt"
-            then
-              vim.api.nvim_win_close(win_id, true)
+    vim.defer_fn(function()
+      local new_bufs = {}
+      for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+        if vim.bo[buf].buftype == "terminal" then
+          local found = false
+          for _, old_buf in ipairs(old_bufs) do
+            if buf == old_buf then
+              found = true
               break
             end
           end
-        end)
-      end
-    end)
-  end
-  dap.listeners.after.event_stopped[key] = function(session, o)
-    vim.schedule(function()
-      pcall(function()
-        if type(session) ~= "table"
-            or type(private_opts.session) ~= "table"
-            or session.id ~= private_opts.session.id then
-          return
-        end
-        local msg = "Stopped"
-        if type(o) == "table"
-            and type(o.reason) == "string"
-            and o.reason ~= "" then
-          if o.reason == "pause"
-              and type(killed) == "table"
-              and type(self.get_id) == "function"
-              and type(self:get_id()) == "number"
-              and killed[self:get_id()] == true
-          then
-            return
+          if not found then
+            table.insert(new_bufs, buf)
           end
-
-          msg = msg .. " - " .. o.reason
         end
-        if writer ~= nil then
-          writer:write({ message = "\n" .. config.prefix .. msg .. "\n\n", hl = config.hl.debug })
-        end
-      end)
-    end)
-  end
-  self:__on_start()
-  return bufnr
-end
-
-function SpurDapJob:__on_exit(opts)
-  vim.schedule(function()
-    local config = require "spur.config"
-    local writer = self:__get_writer()
-
-    if writer ~= nil then
-      writer:write_remainder()
-
-      if type(opts.exit_code) == "number" then
-        local hl = opts.exit_code == 0 and config.hl.info or config.hl.warn
-        writer:write({
-          message = "\n" .. config.prefix .. "Exited with code " .. opts.exit_code .. "\n",
-          hl = hl
-        })
-      elseif opts.killed == true then
-        writer:write({ message = "\n" .. config.prefix .. "Killed\n", hl = config.hl.warn })
-      else
-        writer:write({ message = "\n" .. config.prefix .. "Exited\n", hl = config.hl.info })
       end
-    end
-    SpurJob.__on_exit(self, opts)
-    local bufnr = self:get_bufnr()
-    if type(bufnr) == "number"
-        and vim.api.nvim_buf_is_valid(bufnr) then
-      pcall(function()
-        vim.bo[bufnr].buftype = "prompt"
-      end)
-
-      vim.api.nvim_create_autocmd({ "InsertEnter" }, {
-        buffer = bufnr,
-        group = vim.api.nvim_create_augroup("SpurJobAugroup_Exit", { clear = false }),
-        callback = function()
-          vim.schedule(function()
-            pcall(function()
-              vim.cmd("stopinsert")
-            end)
-          end)
-        end,
-      })
-      pcall(function()
-        vim.api.nvim_buf_call(bufnr, function()
-          pcall(function()
-            vim.cmd("stopinsert")
-          end)
-        end)
-      end)
-    end
-  end)
+      local bufnr = new_bufs[1]
+      if type(bufnr) ~= "number" then
+        return
+      end
+      local config = require "spur.config"
+      vim.bo[bufnr].filetype = config.filetype
+      private_opts.session = new_session
+      private_opts.buf = bufnr
+      require "spur".toggle_output()
+      require "spur".toggle_output()
+      self:__on_start()
+    end, 50)
+  end
 end
 
 function SpurDapJob:__is_available()
