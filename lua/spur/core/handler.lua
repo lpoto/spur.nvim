@@ -248,16 +248,24 @@ function SpurJobHandler:__set_output_window_mappings(job, buf)
   for _, key in ipairs({ "Q" }) do
     vim.keymap.set("n", key, function()
       vim.schedule(function()
-        job:clean()
+        if job:is_running() then
+          self:close_job_output(job)
+        else
+          job:clean()
+        end
       end)
-    end, { buffer = job:get_bufnr(), desc = "Clean job output" })
+    end, { buffer = job:get_bufnr(), desc = "Close or clean job output" })
   end
   for _, key in ipairs({ "<C-q>", "<C-Esc>", "<S-Esc>" }) do
     vim.keymap.set({ "n", "i", "t" }, key, function()
       vim.schedule(function()
-        job:clean()
+        if job:is_running() then
+          self:close_job_output(job)
+        else
+          job:clean()
+        end
       end)
-    end, { buffer = job:get_bufnr(), desc = "Clean job output" })
+    end, { buffer = job:get_bufnr(), desc = "Close or clean job output" })
   end
   local action_mappings = require "spur.config".get_mappings(
     "actions",
