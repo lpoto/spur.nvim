@@ -233,7 +233,7 @@ function SpurJobHandler:__set_output_window_mappings(job, buf)
       vim.schedule(function()
         job:kill()
       end)
-    end, { buffer = job:get_bufnr(), desc = "Stop a running job" })
+    end, { buffer = bufnr, desc = "Stop a running job" })
   end
   for _, key in ipairs({ "<C-x>" }) do
     vim.keymap.set({ "n", "i", "t" }, key, "<Esc>")
@@ -243,7 +243,7 @@ function SpurJobHandler:__set_output_window_mappings(job, buf)
       vim.schedule(function()
         self:close_job_output(job)
       end)
-    end, { buffer = job:get_bufnr(), desc = "Close job output window" })
+    end, { buffer = bufnr, desc = "Close job output window" })
   end
   for _, key in ipairs({ "Q" }) do
     vim.keymap.set("n", key, function()
@@ -254,7 +254,7 @@ function SpurJobHandler:__set_output_window_mappings(job, buf)
           job:clean()
         end
       end)
-    end, { buffer = job:get_bufnr(), desc = "Close or clean job output" })
+    end, { buffer = bufnr, desc = "Close or clean job output" })
   end
   for _, key in ipairs({ "<C-q>", "<C-Esc>", "<S-Esc>" }) do
     vim.keymap.set({ "n", "i", "t" }, key, function()
@@ -265,7 +265,7 @@ function SpurJobHandler:__set_output_window_mappings(job, buf)
           job:clean()
         end
       end)
-    end, { buffer = job:get_bufnr(), desc = "Close or clean job output" })
+    end, { buffer = bufnr, desc = "Close or clean job output" })
   end
   local action_mappings = require "spur.config".get_mappings(
     "actions",
@@ -282,7 +282,7 @@ function SpurJobHandler:__set_output_window_mappings(job, buf)
           local manager = require "spur.manager"
           manager.select_job_action(job)
         end)
-      end, { buffer = job:get_bufnr(), desc = "Select job action" })
+      end, { buffer = bufnr, desc = "Select job action" })
     end)
   end
 end

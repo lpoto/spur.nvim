@@ -123,7 +123,7 @@ function SpurDapJob:is_running()
 end
 
 function SpurDapJob:can_restart()
-  return false
+  return self:is_running()
 end
 
 --- Check whether this job can be run
@@ -153,7 +153,7 @@ local killed = {}
 
 --- Kills the job if it is running.
 --- This does not delete the job's buffer.
-function SpurDapJob:kill()
+function SpurDapJob:kill(flag)
   local private_opts = private[self]
   if private_opts == nil then
     error("SpurDapJob instance is not properly initialized")
@@ -171,6 +171,15 @@ function SpurDapJob:kill()
   end
   killed[self:get_id()] = true
   vim.schedule(function()
+    if flag == "restart" then
+      local key = "Spur.Dap." .. self:get_id()
+      dap.listeners.after.disconnect[key] = function()
+        dap.listeners.after.disconnect[key] = nil
+        vim.defer_fn(function()
+          self:run()
+        end, 250)
+      end
+    end
     dap.terminate()
   end)
 end
@@ -474,6 +483,7 @@ function SpurDapJob:__start_job()
     after = on_exit
   })
   dap.listeners.after.launch[key] = function()
+    dap.listeners.after.launch[key] = nil
     settings.terminal_win_cmd = old_f_value
     local new_session = dap.session()
     ok = new_session ~= nil
