@@ -426,6 +426,8 @@ function SpurDapJob:__start_job()
     end
   end
   local key = "Spur.Dap." .. self:get_id()
+  local settings = dap.defaults[configuration.type]
+  local old_f_value = type(settings) == "table" and settings.terminal_win_cmd
 
   local did_exit = false
   local on_exit = function()
@@ -436,6 +438,11 @@ function SpurDapJob:__start_job()
     pcall(function()
       did_kill = killed[self:get_id()] == true
       killed[self:get_id()] = nil
+    end)
+    pcall(function()
+      if type(settings) == "table" then
+        settings.terminal_win_cmd = old_f_value
+      end
     end)
     private_opts.session = nil
     if did_set_adapter
@@ -453,12 +460,21 @@ function SpurDapJob:__start_job()
   end
   local old_bufs = vim.api.nvim_list_bufs()
 
+  if type(settings) == "table" then
+    settings.terminal_win_cmd = function()
+      local buf = vim.api.nvim_create_buf(false, true)
+      local float = require "spur.core.handler":__open_float(self, buf)
+      return buf, float
+    end
+  end
+
   local prev_session = dap.session()
   dap.run(configuration, {
     new = true,
     after = on_exit
   })
   dap.listeners.after.launch[key] = function()
+    settings.terminal_win_cmd = old_f_value
     local new_session = dap.session()
     ok = new_session ~= nil
         and (prev_session == nil or prev_session.id ~= new_session.id)
@@ -488,6 +504,7 @@ function SpurDapJob:__start_job()
       end
       -- TODO: Override dap function to open
       -- output in a float like other spur jobs do
+
       local config = require "spur.config"
       vim.bo[bufnr].filetype = config.filetype
       private_opts.session = new_session

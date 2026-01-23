@@ -123,7 +123,7 @@ function SpurJobHandler:__open_float(job, bufnr, name)
 
   local win_id = vim.api.nvim_open_win(bufnr, true, win_opts)
   self:__set_output_window_options(win_id, job)
-  self:__set_output_window_mappings(job)
+  self:__set_output_window_mappings(job, bufnr)
   return win_id
 end
 
@@ -220,11 +220,11 @@ end
 --- Add keymaps to the output window.
 ---
 --- @param job SpurJob
-function SpurJobHandler:__set_output_window_mappings(job)
+function SpurJobHandler:__set_output_window_mappings(job, buf)
   if type(job) ~= "table" or type(job.get_bufnr) ~= "function" then
     error("Invalid window ID provided")
   end
-  local bufnr = job:get_bufnr()
+  local bufnr = buf or job:get_bufnr()
   if type(bufnr) ~= "number" or not vim.api.nvim_buf_is_valid(bufnr) then
     error("SpurJob buffer is not available")
   end
