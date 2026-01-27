@@ -188,11 +188,9 @@ function SpurJobHandler:__set_output_window_options(win_id, job)
         local new_buf = vim.api.nvim_get_current_buf()
         local filetype = vim.bo[new_buf].filetype
         if job:get_bufnr() == new_buf then
-          if filetype == config.filetype then
-            -- If the current buffer is a spur output buffer,
-            -- we don't want to close it, so we just return.
-            return false
-          end
+          -- If the current buffer is a spur output buffer,
+          -- we don't want to close it, so we just return.
+          return false
         end
         local buftype = vim.bo[new_buf].buftype
         if buftype == "prompt" and filetype ~= config.filetype then
@@ -310,7 +308,11 @@ function SpurJobHandler:__get_job_actions(job)
     error("Invalid job object provided")
   end
   if job:can_run() and not job:is_running() then
-    table.insert(options, { label = "Run", value = "run" })
+    if not job:can_show_output()
+        or type(job.can_run_before_clean) == "function" and job:can_run_before_clean() == true
+    then
+      table.insert(options, { label = "Run", value = "run" })
+    end
   elseif job:can_restart() and job:is_running() then
     table.insert(options, { label = "Restart", value = "restart" })
   end

@@ -142,8 +142,7 @@ end
 ---
 --- @return boolean
 function SpurJob:is_running()
-  local private_opts = private[self]
-  return type(private_opts) == "table" and private_opts.job_id ~= nil
+  return self:__get_job_id() ~= nil
 end
 
 --- Check if the job is quiet, meaning output
@@ -220,7 +219,7 @@ end
 --- @return boolean
 function SpurJob:can_show_output()
   local bufnr = self:get_bufnr()
-  return type(bufnr) == "number"
+  return type(bufnr) == "number" and vim.api.nvim_buf_is_valid(bufnr)
 end
 
 --- Check whether this job can be run
@@ -232,6 +231,10 @@ end
 function SpurJob:can_restart()
   local private_opts = private[self]
   return private_opts ~= nil
+end
+
+function SpurJob:can_run_before_clean()
+  return true
 end
 
 local create_job_buffer
@@ -305,10 +308,7 @@ function SpurJob:kill(flag)
   if private_opts == nil then
     error("SpurJob instance is not properly initialized")
   end
-  if private_opts.job_id == nil then
-    return
-  end
-  local job_id = private_opts.job_id
+  local job_id = self:__get_job_id()
   if type(flag) == "string" and flag ~= "" then
     if type(private_opts.flags) ~= "table" then
       private_opts.flags = {}
@@ -325,20 +325,29 @@ function SpurJob:kill(flag)
   end
 end
 
+function SpurJob:__get_job_id()
+  local private_opts = private[self]
+  if private_opts == nil then
+    return nil
+  end
+  if private_opts.job_id == nil then
+    return nil
+  end
+  return private_opts.job_id
+end
+
 function SpurJob:__send_signal(name)
   if type(name) ~= "string" or name == "" then
     return
   end
-  local private_opts = private[self]
-  if private_opts == nil or private_opts.job_id == nil then
+  local job_id = self:__get_job_id()
+  if job_id == nil then
     return
   end
   vim.schedule(function()
     pcall(function()
       local config = require "spur.config"
-      vim.api.nvim_chan_send(
-        private_opts.job_id,
-        "\n\n#" .. config.prefix .. "Signal - " .. name .. "\n")
+      vim.api.nvim_chan_send(job_id, "\n\n#" .. config.prefix .. "Signal - " .. name .. "\n")
     end)
   end)
 end
@@ -377,7 +386,8 @@ function SpurJob:__start_job(bufnr, args)
   if not private_opts then
     error("SpurJob instance is not properly initialized")
   end
-  if private_opts.job_id ~= nil then
+  local job_id = self:__get_job_id()
+  if job_id ~= nil then
     error("SpurJob is already running")
   end
   if type(self.job) ~= "table" or type(self.job.cmd) ~= "string" or self.job.cmd == "" then

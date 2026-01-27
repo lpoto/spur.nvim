@@ -1,7 +1,6 @@
 local M = {}
 local jobs = {}
 local format_job_name
-local quick_run_counter = 1
 
 local handlers = {}
 local initialized = false
@@ -42,6 +41,18 @@ function M.add_handler(handler)
   table.insert(handlers, handler)
 end
 
+--- Close all open job outputs.
+---
+--- @return boolean Whether any outputs were closed
+function M.close_outputs()
+  local did_close = false
+  for _, job in pairs(jobs) do
+    local handler = M.__find_handler(job, "close_job_output")
+    did_close = handler:close_job_output(job) or did_close
+  end
+  return did_close
+end
+
 --- Add a job to the manager.
 ---
 ---@param job table
@@ -79,40 +90,6 @@ function M.remove_job(job)
   jobs[job:get_id()] = nil
 end
 
---- Create a temporary job and run the provided
---- command. This job will be removed once its output is cleared.
----
---- If no command is provided, the user will be prompted to enter one.
----
----@param cmd string|nil
-function M.quick_run(cmd)
-  if type(cmd) ~= "string" or cmd == "" then
-    cmd = vim.fn.input("QuickRun command: ")
-  end
-  if type(cmd) ~= "string" or cmd == "" then
-    return
-  end
-  local counter = quick_run_counter
-  quick_run_counter = quick_run_counter + 1
-  local job
-  job = require "spur.core.job":new({
-    order = -100,
-    job = {
-      cmd = cmd,
-      name = "Quick run " .. counter,
-    },
-    on_clean = function()
-      M.remove_job(job)
-    end
-  })
-  M.add_job(job)
-  job:run()
-  vim.schedule(function()
-    local handler = M.__find_handler(job, "open_job_output")
-    handler:open_job_output(job)
-  end)
-end
-
 local job_is_available
 
 --- Get all currently available jobs
@@ -130,8 +107,6 @@ function M.get_jobs()
   end
   return filtered_jobs
 end
-
-local is_quick_run
 
 --- Select a job from the list of available jobs.
 --- On selection, the user will be prompted to
@@ -178,17 +153,6 @@ function M.select_job(selection, filter, on_select, skip_selection_if_one_result
     if b_output and not a_output then
       return false
     end
-    local a_qr = is_quick_run(a:get_name())
-    local b_qr = is_quick_run(b:get_name())
-    if a_qr and b_qr then
-      return a.name < b.name
-    end
-    if a_qr then
-      return false
-    end
-    if b_qr then
-      return true
-    end
     if a.order == b.order then
       return a:get_id() < b:get_id()
     end
@@ -206,9 +170,6 @@ function M.select_job(selection, filter, on_select, skip_selection_if_one_result
     end
     return a.order < b.order
   end)
-  if type(filter) ~= "function" and type(on_select) ~= "function" then
-    table.insert(filtered_jobs, { type = "quickrun" })
-  end
   if #filtered_jobs == 0 then
     local title = require "spur.config".title
     vim.notify("No jobs found", vim.log.levels.WARN, { title = title })
@@ -319,9 +280,6 @@ end
 
 ---@param job SpurJob|table
 function format_job_name(job)
-  if type(job) == "table" and job.type == "quickrun" then
-    return "[Quick run]"
-  end
   if type(job) ~= "table"
       or type(job.get_status) ~= "function"
       or type(job.get_name) ~= "function" then
@@ -333,10 +291,6 @@ function format_job_name(job)
     name = name .. " (" .. status .. ")"
   end
   return name
-end
-
-function is_quick_run(str)
-  return string.match(str, "^Quick run %[%d+%]$") ~= nil
 end
 
 ---@param job SpurJob

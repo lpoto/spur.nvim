@@ -95,6 +95,10 @@ function M.toggle_output()
       return false
     end
   end
+  local manager = require "spur.manager"
+  if manager.close_outputs() then
+    return false
+  end
   M.select_output()
   return true
 end
