@@ -44,7 +44,7 @@ function init_job(cmd)
   ---@diagnostic disable-next-line
   local last_print_time = vim.loop.now()
   local job = {
-    order = -90,
+    order = -93,
     type = "copilot-cli",
     job = {
       name = "[Copilot]",
