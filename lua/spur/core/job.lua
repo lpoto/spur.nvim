@@ -233,6 +233,14 @@ function SpurJob:can_restart()
   return private_opts ~= nil
 end
 
+function SpurJob:can_clean()
+  return self:can_show_output()
+end
+
+function SpurJob:can_kill()
+  return self:is_running()
+end
+
 function SpurJob:can_run_before_clean()
   return true
 end

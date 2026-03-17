@@ -30,6 +30,12 @@ function SpurJobLazyGitCliHandler:accepts_job(opts, action)
   return opts.type == "lazygit"
 end
 
+---@param o table Input fields for SpurJob
+---@return SpurJob
+function SpurJobLazyGitCliHandler:create_job(o)
+  return require "spur.extension.lazygit.job":new(o)
+end
+
 function SpurJobLazyGitCliHandler:open_job_output(job)
   local bufnr = vim.api.nvim_get_current_buf()
 

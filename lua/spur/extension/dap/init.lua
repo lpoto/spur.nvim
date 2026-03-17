@@ -4,7 +4,7 @@ local M = {}
 ---@field enabled boolean|nil Whether the dap extension is enabled
 
 --- Support running jobs with a DAP debugger.
----@param config SpurDbeeConfig|nil
+---@param config SpurDapConfig|nil
 function M.init(config)
   if config ~= nil and type(config) ~= "table" then
     error("[Spur.dap] init expects a table as config")
@@ -14,7 +14,7 @@ function M.init(config)
   if not enabled then
     return
   end
-  if M.__inititalized  then
+  if M.__inititalized then
     return
   end
   M.__inititalized = true

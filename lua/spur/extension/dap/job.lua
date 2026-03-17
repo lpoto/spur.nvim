@@ -12,7 +12,9 @@ SpurDapJob.__type = "SpurJob"
 SpurDapJob.__subtype = "SpurDapJob"
 SpurDapJob.__metatable = SpurDapJob
 
-local private = setmetatable({}, { __mode = "k" })
+local id = nil
+local buf = nil
+local session = nil
 
 --- Create a new SpurDapJob instance.
 ---
@@ -96,30 +98,31 @@ function SpurDapJob:new(opts)
 
   local instance = setmetatable(spur_job, SpurDapJob)
 
-
-  private[instance] = {
-    id = spur_job:get_id(),
-    session = nil
-  }
   instance.dap = opts.dap
   ---@diagnostic disable-next-line
   return instance
 end
 
---- Check if the job is currently running.
----
----@return boolean
-function SpurDapJob:is_running()
-  local private_opts = private[self]
-  if type(private_opts) ~= "table" or type(private_opts.session) ~= "table" then
+local function is_any_running()
+  if type(session) ~= "table" or type(id) ~= "number" then
     return false
   end
   local ok, dap = pcall(require, "dap")
   if not ok then
     return false
   end
-  local session = dap.session()
-  return type(session) == "table" and session.id == private_opts.session.id
+  local local_session = dap.session()
+  return type(local_session) == "table" and session.id == local_session.id
+end
+
+--- Check if the job is currently running.
+---
+---@return boolean
+function SpurDapJob:is_running()
+  if id ~= self:get_id() then
+    return false
+  end
+  return is_any_running()
 end
 
 function SpurDapJob:can_restart()
@@ -131,22 +134,21 @@ function SpurDapJob:can_run()
   if not SpurJob.can_run(self) then
     return false
   end
-  local private_opts = private[self]
-  if private_opts == nil then
+  if is_any_running() then
     return false
   end
   local ok, dap = pcall(require, "dap")
   if not ok then
     return false
   end
-  local session = dap.session()
-  if session == nil or session.closed == true then
+  local local_session = dap.session()
+  if local_session == nil or local_session.closed == true then
     return true
   end
-  if private_opts.session == nil then
+  if session == nil then
     return false
   end
-  return session.id == private_opts.session.id
+  return session.id == local_session.id
 end
 
 local killed = {}
@@ -154,19 +156,15 @@ local killed = {}
 --- Kills the job if it is running.
 --- This does not delete the job's buffer.
 function SpurDapJob:kill(flag)
-  local private_opts = private[self]
-  if private_opts == nil then
-    error("SpurDapJob instance is not properly initialized")
-  end
-  if private_opts.session == nil then
+  if session == nil then
     return
   end
   local ok, dap = pcall(require, "dap")
   if not ok then
     return
   end
-  local session = dap.session()
-  if session == nil or private_opts.session.id ~= session.id then
+  local local_session = dap.session()
+  if local_session == nil or local_session.id ~= session.id then
     return
   end
   killed[self:get_id()] = true
@@ -185,14 +183,11 @@ function SpurDapJob:kill(flag)
 end
 
 function SpurDapJob:clean()
-  local private_opts = private[self]
-  if private_opts == nil then
-    error("SpurDapJob instance is not properly initialized")
-  end
   SpurJob.clean(self)
-
   vim.schedule(function()
-    private_opts.buf = nil
+    buf = nil
+    id = nil
+    session = nil
   end)
 end
 
@@ -246,25 +241,21 @@ function SpurDapJob:threads()
 end
 
 function SpurDapJob:supports_step_back()
-  local private_opts = private[self]
-  if private_opts == nil then
-    error("SpurDapJob instance is not properly initialized")
-  end
-  if private_opts.session == nil then
+  if session == nil then
     return
   end
   local ok, dap = pcall(require, "dap")
   if not ok then
     return
   end
-  local session = dap.session()
-  if session == nil
-      or private_opts.session.id ~= session.id
-      or session.stopped_thread_id == nil
+  local local_session = dap.session()
+  if local_session == nil
+      or local_session.id ~= session.id
+      or local_session.stopped_thread_id == nil
   then
     return
   end
-  return session.capabilities.supportsStepBack == true
+  return local_session.capabilities.supportsStepBack == true
 end
 
 function SpurDapJob:is_stopped()
@@ -275,8 +266,8 @@ function SpurDapJob:is_stopped()
   if not ok then
     return false
   end
-  local session = dap.session()
-  if type(session) == "table" and session.stopped_thread_id then
+  local local_session = dap.session()
+  if type(local_session) == "table" and local_session.stopped_thread_id then
     return true
   end
   return false
@@ -288,11 +279,10 @@ end
 ---
 --- @return number|nil
 function SpurDapJob:get_bufnr()
-  local private_opts = private[self]
-  if type(private_opts) == "table"
-      and type(private_opts.buf) == "number"
+  if type(buf) == "number"
+      and id == self:get_id()
   then
-    return private_opts.buf
+    return buf
   end
   return nil
 end
@@ -307,8 +297,8 @@ function SpurDapJob:get_status()
     if not ok then
       return
     end
-    local session = dap.session()
-    if type(session) == "table" and session.stopped_thread_id then
+    local local_session = dap.session()
+    if type(local_session) == "table" and local_session.stopped_thread_id then
       return "Stopped"
     end
   end
@@ -318,10 +308,6 @@ end
 --- Run the job with the command specified when creating the instance.
 --- The job cannot be run, if it is already running.
 function SpurDapJob:run()
-  local private_opts = private[self]
-  if not private_opts then
-    error("SpurJob instance is not properly initialized")
-  end
   vim.schedule(function()
     local existing_buf = self:get_bufnr()
     local winids = vim.api.nvim_list_wins()
@@ -331,8 +317,8 @@ function SpurDapJob:run()
     pcall(function()
       local config = require "spur.config"
       for _, winid in ipairs(winids) do
-        local buf = vim.api.nvim_win_get_buf(winid)
-        if buf == existing_buf
+        local local_buf = vim.api.nvim_win_get_buf(winid)
+        if local_buf == existing_buf
             or (vim.bo[buf].filetype == config.filetype
               and vim.bo[buf].buftype == "prompt")
         then
@@ -355,25 +341,21 @@ function SpurDapJob:__execute_stopped_session_call(call)
   if type(call) ~= "function" then
     return
   end
-  local private_opts = private[self]
-  if private_opts == nil then
-    error("SpurDapJob instance is not properly initialized")
-  end
-  if private_opts.session == nil then
+  if session == nil then
     return
   end
   local ok, dap = pcall(require, "dap")
   if not ok then
     return
   end
-  local session = dap.session()
-  if session == nil
-      or private_opts.session.id ~= session.id
-      or session.stopped_thread_id == nil
+  local local_session = dap.session()
+  if local_session == nil
+      or local_session.id ~= session.id
+      or local_session.stopped_thread_id == nil
   then
     return
   end
-  call(dap, session)
+  call(dap, local_session)
 end
 
 --- Override run to start DAP session
@@ -412,10 +394,6 @@ function SpurDapJob:__start_job()
   if type(configuration.type) ~= "string" or configuration.type == "" then
     error("SpurDapJob:run expects 'dap.configuration.type' to be a non-empty string")
   end
-  local private_opts = private[self]
-  if type(private_opts) ~= "table" then
-    error("SpurDapJob:run expects 'private' to be a table")
-  end
 
   local previous_adapter = nil
   local did_set_adapter = false
@@ -453,7 +431,7 @@ function SpurDapJob:__start_job()
         settings.terminal_win_cmd = old_f_value
       end
     end)
-    private_opts.session = nil
+    session = nil
     if did_set_adapter
         and previous_adapter ~= nil
         and type(dap.adapters) == "table"
@@ -471,9 +449,9 @@ function SpurDapJob:__start_job()
 
   if type(settings) == "table" then
     settings.terminal_win_cmd = function()
-      local buf = vim.api.nvim_create_buf(false, true)
-      local float = require "spur.core.handler":__open_float(self, buf)
-      return buf, float
+      local local_buf = vim.api.nvim_create_buf(false, true)
+      local float = require "spur.core.handler":__open_float(self, local_buf)
+      return local_buf, float
     end
   end
 
@@ -494,17 +472,17 @@ function SpurDapJob:__start_job()
     end
     vim.defer_fn(function()
       local new_bufs = {}
-      for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-        if vim.bo[buf].buftype == "terminal" then
+      for _, local_buf in ipairs(vim.api.nvim_list_bufs()) do
+        if vim.bo[local_buf].buftype == "terminal" then
           local found = false
           for _, old_buf in ipairs(old_bufs) do
-            if buf == old_buf then
+            if local_buf == old_buf then
               found = true
               break
             end
           end
           if not found then
-            table.insert(new_bufs, buf)
+            table.insert(new_bufs, local_buf)
           end
         end
       end
@@ -517,8 +495,9 @@ function SpurDapJob:__start_job()
 
       local config = require "spur.config"
       vim.bo[bufnr].filetype = config.filetype
-      private_opts.session = new_session
-      private_opts.buf = bufnr
+      session = new_session
+      buf = bufnr
+      id = self:get_id()
       self:__on_start()
     end, 50)
   end

@@ -260,7 +260,7 @@ function M.select_job_action(job)
       count = count + 1
     end
   end
-  if count == 1 and actions[1].value == "run" then
+  if count == 1 and (actions[1].value == "run" or actions[1].value == "output") then
     return handler:__execute_job_action(job, actions[1])
   end
 

@@ -321,10 +321,10 @@ function SpurJobHandler:__get_job_actions(job)
       table.insert(options, { label = "Output", value = "output" })
     end
   end
-  if job:is_running() then
+  if job:can_kill() then
     table.insert(options, { label = "Kill", value = "kill" })
   end
-  if job:can_show_output() then
+  if job:can_clean() then
     table.insert(options, { label = "Clean", value = "clean" })
   end
   table.insert(options, { label = "[Back]", value = "_back" })

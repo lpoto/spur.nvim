@@ -30,6 +30,12 @@ function SpurJobLazySqlCliHandler:accepts_job(opts, action)
   return opts.type == "lazysql"
 end
 
+---@param o table Input fields for SpurJob
+---@return SpurJob
+function SpurJobLazySqlCliHandler:create_job(o)
+  return require "spur.extension.lazysql.job":new(o)
+end
+
 function SpurJobLazySqlCliHandler:open_job_output(job)
   local bufnr = vim.api.nvim_get_current_buf()
 
