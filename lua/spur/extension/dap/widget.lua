@@ -71,15 +71,6 @@ end
 function SpurDapWidget:close()
   if type(self.widget) == "table" then
     local buf = self.widget.buf
-    pcall(function()
-      local winids = vim.api.nvim_list_wins()
-      for _, winid in ipairs(winids) do
-        local win_buf = vim.api.nvim_win_get_buf(winid)
-        if win_buf == buf or vim.bo[win_buf].filetype:gmatch("^dap-") then
-          pcall(vim.api.nvim_win_close, winid, true)
-        end
-      end
-    end)
     if type(buf) == "number" then
       pcall(vim.api.nvim_buf_delete, buf, { force = true })
     end
