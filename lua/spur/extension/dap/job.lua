@@ -125,12 +125,24 @@ function SpurDapJob:is_running()
   return is_any_running()
 end
 
+--- Check if the job is currently processing.
+--- Might be either running or just waiting to start the run.
+---
+---@return boolean
+function SpurDapJob:is_processing()
+  return id ~= nil and id == self:get_id()
+end
+
+--- Check if the job can be restarted.
 function SpurDapJob:can_restart()
   return self:is_running()
 end
 
 --- Check whether this job can be run
 function SpurDapJob:can_run()
+  if id ~= nil and buf == nil then
+    return false
+  end
   if not SpurJob.can_run(self) then
     return false
   end
@@ -302,38 +314,20 @@ function SpurDapJob:get_status()
       return "Stopped"
     end
   end
-  return status
+  if status ~= nil then
+    return status
+  end
+  if session == nil and id ~= nil and id == self:get_id() then
+    return "Waiting"
+  end
+  return nil
 end
 
 --- Run the job with the command specified when creating the instance.
 --- The job cannot be run, if it is already running.
 function SpurDapJob:run()
   vim.schedule(function()
-    local existing_buf = self:get_bufnr()
-    local winids = vim.api.nvim_list_wins()
-
     self:__start_job()
-
-    pcall(function()
-      local config = require "spur.config"
-      for _, winid in ipairs(winids) do
-        local local_buf = vim.api.nvim_win_get_buf(winid)
-        if local_buf == existing_buf
-            or (vim.bo[buf].filetype == config.filetype
-              and vim.bo[buf].buftype == "prompt")
-        then
-          pcall(function()
-            vim.api.nvim_win_close(winid, true)
-          end)
-        end
-      end
-    end)
-    pcall(function()
-      if existing_buf ~= nil and vim.api.nvim_buf_is_valid(existing_buf) then
-        -- If the job was already running, we need to clean up the old buffer.
-        vim.api.nvim_buf_delete(existing_buf, { force = true })
-      end
-    end)
   end)
 end
 
@@ -450,7 +444,13 @@ function SpurDapJob:__start_job()
   if type(settings) == "table" then
     settings.terminal_win_cmd = function()
       local local_buf = vim.api.nvim_create_buf(false, true)
-      local float = require "spur.core.handler":__open_float(self, local_buf)
+      local float = -1
+      if buf ~= nil and vim.api.nvim_buf_is_valid(buf) then
+        float = vim.fn.bufwinid(buf)
+      end
+      if float <= -1 then
+        float = require "spur.core.handler":__open_float(self, local_buf)
+      end
       return local_buf, float
     end
   end
@@ -460,6 +460,7 @@ function SpurDapJob:__start_job()
     new = true,
     after = on_exit
   })
+  id = self:get_id()
   dap.listeners.after.launch[key] = function()
     dap.listeners.after.launch[key] = nil
     settings.terminal_win_cmd = old_f_value
@@ -471,28 +472,25 @@ function SpurDapJob:__start_job()
       return nil
     end
     vim.defer_fn(function()
+      local found_buf = nil
       local new_bufs = {}
       for _, local_buf in ipairs(vim.api.nvim_list_bufs()) do
         if vim.bo[local_buf].buftype == "terminal" then
-          local found = false
           for _, old_buf in ipairs(old_bufs) do
             if local_buf == old_buf then
-              found = true
+              found_buf = local_buf
               break
             end
           end
-          if not found then
+          if found_buf == nil then
             table.insert(new_bufs, local_buf)
           end
         end
       end
-      local bufnr = new_bufs[1]
+      local bufnr = found_buf or new_bufs[1]
       if type(bufnr) ~= "number" then
         return
       end
-      -- TODO: Override dap function to open
-      -- output in a float like other spur jobs do
-
       local config = require "spur.config"
       vim.bo[bufnr].filetype = config.filetype
       session = new_session

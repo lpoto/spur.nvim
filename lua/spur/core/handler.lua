@@ -196,6 +196,9 @@ function SpurJobHandler:__set_output_window_options(win_id, job)
         if buftype == "prompt" and filetype ~= config.filetype then
           return false
         end
+        if filetype == config.filetype then
+          return false
+        end
         if not win_id or win_id == -1 or not vim.api.nvim_win_is_valid(win_id) then
           return false
         end
