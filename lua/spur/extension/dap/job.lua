@@ -497,6 +497,11 @@ function SpurDapJob:__start_job()
       buf = bufnr
       id = self:get_id()
       self:__on_start()
+      vim.schedule(function()
+        if buf ~= vim.api.nvim_get_current_buf() then
+          require("spur.manager").__find_handler(self, "open_job_output"):open_job_output(self)
+        end
+      end)
     end, 50)
   end
 end
