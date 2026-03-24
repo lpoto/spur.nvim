@@ -449,7 +449,9 @@ function SpurDapJob:__start_job()
         float = vim.fn.bufwinid(buf)
       end
       if float <= -1 then
-        float = require "spur.core.handler":__open_float(self, local_buf)
+        float = require("spur.manager").__find_handler(self, "__open_float"):__open_float(
+          self,
+          local_buf)
       end
       return local_buf, float
     end
@@ -498,6 +500,14 @@ function SpurDapJob:__start_job()
       id = self:get_id()
       self:__on_start()
       vim.schedule(function()
+        if found_buf then
+          pcall(function()
+            local winid = vim.fn.bufwinid(buf)
+            require("spur.manager").__find_handler(self, "__update_float_opts"):__update_float_opts(
+              self,
+              winid)
+          end)
+        end
         if buf ~= vim.api.nvim_get_current_buf() then
           require("spur.manager").__find_handler(self, "open_job_output"):open_job_output(self)
         end

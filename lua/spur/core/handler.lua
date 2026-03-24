@@ -127,6 +127,18 @@ function SpurJobHandler:__open_float(job, bufnr, name)
   return win_id
 end
 
+function SpurJobHandler:__update_float_opts(job, win_id, name)
+  name = self:__get_output_name(job, name)
+  local win_opts = self.__get_win_opts(name)
+  if type(win_id) ~= "number" or not vim.api.nvim_win_is_valid(win_id) then
+    return
+  end
+  vim.api.nvim_win_set_config(win_id, win_opts)
+  self:__set_output_window_options(win_id, job)
+  self:__set_output_window_mappings(job)
+  return win_id
+end
+
 function SpurJobHandler:__get_output_name(job, name)
   if type(name) ~= "string" or name == "" then
     return "[output] " .. job:get_name()
