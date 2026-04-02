@@ -439,24 +439,37 @@ function SpurDapJob:__start_job()
       killed = did_kill
     })
   end
-  local old_bufs = vim.api.nvim_list_bufs()
 
-  if type(settings) == "table" then
-    settings.terminal_win_cmd = function()
-      local local_buf = vim.api.nvim_create_buf(false, true)
-      local float = -1
-      if buf ~= nil and vim.api.nvim_buf_is_valid(buf) then
-        float = vim.fn.bufwinid(buf)
-      end
-      if float <= -1 then
-        float = require("spur.manager").__find_handler(self, "__open_float"):__open_float(
-          self,
-          local_buf)
-      end
-      return local_buf, float
+  local old_bufs = vim.api.nvim_list_bufs()
+  for _, local_buf in ipairs(old_bufs) do
+    if vim.bo[local_buf].buftype == "terminal" and local_buf ~= buf then
+      error(
+        "SpurDapJob:run cannot be run because there are existing terminal buffers."
+        .. "Please close them before running the job.")
     end
   end
 
+  if buf ~= nil and vim.api.nvim_buf_is_valid(buf) then
+    buf = self:__replace_buffer()
+  end
+
+  if type(settings) == "table" then
+    settings.terminal_win_cmd = function()
+      if buf ~= nil and vim.api.nvim_buf_is_valid(buf) then
+        local win = vim.fn.bufwinid(buf)
+        if win ~= -1 and vim.api.nvim_win_is_valid(win) then
+          return buf, win
+        end
+      end
+      local config = require "spur.config"
+      local local_buf = vim.api.nvim_create_buf(false, true)
+      vim.bo[local_buf].filetype = config.filetype
+      local float = require("spur.manager").__find_handler(self, "__open_float"):__open_float(
+        self,
+        local_buf)
+      return local_buf, float
+    end
+  end
   local prev_session = dap.session()
   dap.run(configuration, {
     new = true,
@@ -500,14 +513,6 @@ function SpurDapJob:__start_job()
       id = self:get_id()
       self:__on_start()
       vim.schedule(function()
-        if found_buf then
-          pcall(function()
-            local winid = vim.fn.bufwinid(buf)
-            require("spur.manager").__find_handler(self, "__update_float_opts"):__update_float_opts(
-              self,
-              winid)
-          end)
-        end
         if buf ~= vim.api.nvim_get_current_buf() then
           require("spur.manager").__find_handler(self, "open_job_output"):open_job_output(self)
         end
@@ -522,6 +527,26 @@ function SpurDapJob:__is_available()
   end
   local ok, _ = pcall(require, "dap")
   return ok
+end
+
+function SpurDapJob:__replace_buffer()
+  if type(buf) ~= "number" or not vim.api.nvim_buf_is_valid(buf) then
+    return nil
+  end
+  local old_buf = buf
+  local win = vim.fn.bufwinid(old_buf)
+
+  if win ~= -1 and vim.api.nvim_win_is_valid(win) then
+    id = self:get_id()
+    local config = require "spur.config"
+    buf = vim.api.nvim_create_buf(false, true)
+    vim.bo[buf].filetype = config.filetype
+    vim.api.nvim_win_set_buf(win, buf)
+    require("spur.manager").__find_handler(self, "__open_float"):__update_float_opts(self, win)
+  end
+
+  pcall(vim.cmd, "noautocmd lua vim.api.nvim_buf_delete(" .. old_buf .. ", { force = true })")
+  return buf
 end
 
 return SpurDapJob
