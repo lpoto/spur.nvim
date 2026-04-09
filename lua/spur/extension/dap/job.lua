@@ -470,6 +470,7 @@ function SpurDapJob:__start_job()
       return local_buf, float
     end
   end
+  self:__publish_event("waiting")
   local prev_session = dap.session()
   dap.run(configuration, {
     new = true,

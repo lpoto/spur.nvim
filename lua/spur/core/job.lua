@@ -382,6 +382,9 @@ function SpurJob:clean()
     end
     private_opts.bufnr = nil
   end)
+  vim.schedule(function()
+    self:__publish_event("clean")
+  end)
 end
 
 ---@param bufnr number|nil
@@ -450,6 +453,7 @@ function SpurJob:__on_exit(opts)
       end)
     end
   end)
+  self:__publish_event("exit")
 end
 
 function SpurJob:__on_start()
@@ -467,6 +471,7 @@ function SpurJob:__on_start()
       end
     end)
   end)
+  self:__publish_event("start")
 end
 
 ---@return boolean
@@ -492,6 +497,19 @@ function SpurJob:__is_available()
   end
   return string.sub(current_dir, 1, #dir) == dir
       or string.sub(current_dir, 1, #dir + 1) == dir .. "/"
+end
+
+function SpurJob:__publish_event(action)
+  vim.schedule(function()
+    pcall(function()
+      vim.api.nvim_exec_autocmds("User", {
+        pattern = "Spur",
+        data = {
+          action = action
+        }
+      })
+    end)
+  end)
 end
 
 ---@param job SpurJob
